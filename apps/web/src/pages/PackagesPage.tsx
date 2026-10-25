@@ -5,6 +5,7 @@ import { primaryImage, productById } from '@/data/catalog';
 import { usePageTitle } from '@/hooks/use-page-title';
 import { useI18n } from '@/i18n';
 import { Container } from '@/components/ui/Container';
+import { apiBase } from '@/lib/api-url';
 
 type StorePackage = {
   id: string;
@@ -13,7 +14,7 @@ type StorePackage = {
   productIds: string[];
 };
 
-const apiUrl = (import.meta.env.VITE_API_URL ?? 'http://localhost:4000').replace(/\/$/, '');
+const apiUrl = apiBase();
 
 export function PackagesPage() {
   const { locale, messages } = useI18n();

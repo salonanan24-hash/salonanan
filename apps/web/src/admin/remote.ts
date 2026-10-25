@@ -1,7 +1,8 @@
 import { getBrowserSupabase } from '@/lib/supabase';
+import { apiBase } from '@/lib/api-url';
 import type { AdminData } from '@/admin/types';
 
-const apiUrl = (import.meta.env.VITE_API_URL ?? 'http://localhost:4000').replace(/\/$/, '');
+const apiUrl = apiBase();
 
 type CatalogResponse = {
   empty?: boolean;

@@ -1,6 +1,7 @@
+import { apiBase } from '@/lib/api-url';
 import { getBrowserSupabase } from '@/lib/supabase';
 
-const apiUrl = (import.meta.env.VITE_API_URL ?? 'http://localhost:4000').replace(/\/$/, '');
+const apiUrl = apiBase();
 
 export type ApiOrder = {
   id: string;

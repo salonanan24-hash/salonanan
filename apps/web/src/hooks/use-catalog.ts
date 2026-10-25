@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { emptyStoreCatalog, setActiveCatalog, type StoreCatalog } from '@/data/catalog';
+import { apiBase } from '@/lib/api-url';
 
-const apiUrl = (import.meta.env.VITE_API_URL ?? 'http://localhost:4000').replace(/\/$/, '');
+const apiUrl = apiBase();
 
 async function fetchStoreCatalog(): Promise<StoreCatalog> {
   const response = await fetch(`${apiUrl}/api/catalog`);

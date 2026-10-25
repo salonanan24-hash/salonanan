@@ -47,10 +47,20 @@ export const config = {
   supabaseServiceRoleKey: parsed.SUPABASE_SERVICE_ROLE_KEY.trim(),
 };
 
+function isVercelOrigin(origin: string): boolean {
+  try {
+    const url = new URL(origin);
+    return url.protocol === 'https:' && url.hostname.endsWith('.vercel.app');
+  } catch {
+    return false;
+  }
+}
+
 /** Local Vite may move from 5173 to the next free port. Allow those only outside production. */
 export function isCorsOrigin(origin: string | undefined): boolean {
   if (!origin) return true;
   if (config.corsOrigins.includes(origin)) return true;
+  if (isVercelOrigin(origin)) return true;
   if (config.nodeEnv === 'production') return false;
 
   try {
