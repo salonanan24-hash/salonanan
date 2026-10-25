@@ -1,0 +1,62 @@
+ANAN development imagery
+Local files for the storefront demo. They are not photographs of the fictional
+Solara, Tekora, Briza, Novent, Lumio, or Ardent models, and they are not
+Samsung, LG, or Bosch campaign art.
+
+Storefront use
+- Category tiles, subcategory tiles, the homepage hero, split promos, and most
+  product cards use the original vis-*.webp drawings below.
+- product-fridge-retro.webp is used only for the retro single-door demo product
+  and the single-door subcategory tile.
+- product-laptop.webp is used for the laptop demo product and the computers tile.
+- A site-wide development notice states that prices, stock, and brands are demo data.
+  Product cards do not repeat a long disclaimer. Alt text still says when an image
+  is not the listed model.
+
+Original drawings (not photographs)
+vis-fridge.webp, vis-fridge-top.webp, vis-fridge-bottom.webp, vis-fridge-side.webp,
+vis-fridge-four.webp, vis-fridge-mini.webp, vis-fridge-built.webp, vis-freezer.webp,
+vis-washer.webp, vis-dryer.webp, vis-oven.webp, vis-cooktop.webp,
+vis-dishwasher.webp, vis-ac.webp, vis-mixer.webp, vis-phone.webp, vis-tv.webp
+Drawn for this demo on a white background. No third-party license.
+vis-ac.webp is an indoor wall unit. vis-tv.webp replaces the shared low-resolution
+television photograph on product cards so one photo is not shown as three models.
+The older product-ph-*.webp line drawings remain on disk and are no longer referenced.
+
+Product photographs still in use
+- product-fridge-retro.webp — Wikimedia Commons File:2 NEVERA.jpg
+  Author: Museuvalenciaetnologia. License: CC BY-SA 4.0
+  https://creativecommons.org/licenses/by-sa/4.0
+  https://commons.wikimedia.org/wiki/File:2_NEVERA.jpg
+  Single-door refrigerator on a light studio background. Not a Lumio model.
+- product-laptop.webp — Wikimedia Commons File:Notebook computer.jpg
+  Author: KK IN HK. License: CC BY-SA 4.0
+  https://creativecommons.org/licenses/by-sa/4.0
+  https://commons.wikimedia.org/wiki/File:Notebook_computer.jpg
+  Portable computer on a white background. Not a Tekora model and not confirmed as 16 inches.
+
+Photograph kept in the folder, no longer shown on cards
+- product-tv.webp — Wikimedia Commons File:LCD generic tv02.jpg
+  Uploader: Noles1984~commonswiki. License: CC BY-SA 3.0
+  http://creativecommons.org/licenses/by-sa/3.0/
+  https://commons.wikimedia.org/wiki/File:LCD_generic_tv02.jpg
+  Source is 268×187. It was shared by three television records and is unused now.
+
+Lifestyle files kept on disk, not used by the storefront
+Unsplash License: https://unsplash.com/license
+- hero-kitchen.webp, oven.webp, cooktop.webp — photo-1556911220-bff31c812dba
+- hero-fridge.webp, fridge-retro.webp — photo-1571175443880-49e1d25b2bc5
+- washer-drum.webp — photo-1610557892470-55d9e80c0bce
+- tv-screen.webp — photo-1593359677879-a4bb92f829d1
+- laptop.webp — photo-1496181133206-80ce9b88a853
+- phone.webp — photo-1511707171634-5f897ff02aa9
+- small-kitchen.webp — photo-1556912173-46c336c7fd55
+
+Pexels License: https://www.pexels.com/license/
+- fridge-tall.webp, dish-tight.webp — photo 9551373, cropped
+- dryer-white.webp — photo 28479466
+- hero-living.webp, tv-lounge.webp — photo 3016428
+- tv-wall.webp — photo 7745995
+- ac.webp — photo 3964341 (outdoor condenser)
+
+fallback.webp is a generated placeholder, not a photograph.
