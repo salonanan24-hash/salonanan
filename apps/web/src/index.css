@@ -160,6 +160,36 @@ html[lang='ar'] {
   flex: 0 0 50%;
 }
 
+.anan-ad-shift {
+  animation: anan-ad-shift 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.anan-ad-track {
+  transition: transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes anan-ad-shift {
+  from {
+    transform: translate3d(-7%, 0, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+[dir='rtl'] .anan-ad-shift {
+  animation-name: anan-ad-shift-rtl;
+}
+
+@keyframes anan-ad-shift-rtl {
+  from {
+    transform: translate3d(7%, 0, 0);
+  }
+  to {
+    transform: translate3d(0, 0, 0);
+  }
+}
+
 .anan-sheen {
   transform: translateX(-150%);
 }
@@ -181,6 +211,12 @@ html[lang='ar'] {
   .anan-cat-panel,
   .anan-menu-viewport,
   .anan-menu-track {
+    transition: none;
+  }
+
+  .anan-ad-shift,
+  .anan-ad-track {
+    animation: none;
     transition: none;
   }
 

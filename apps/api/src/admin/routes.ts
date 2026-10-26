@@ -32,6 +32,7 @@ import {
   writeSettings,
 } from './catalog.js';
 import { countRegisteredCustomers, listAllOrders, updateOrderStatus } from '../orders/orders.js';
+import { homeAdsInput, replaceHomeAds } from '../home-ads/home-ads.js';
 import { deletePackage, listPackages, packageInput, savePackage } from '../packages/packages.js';
 import { requireAdmin } from './require-admin.js';
 import { wrap } from './wrap.js';
@@ -242,6 +243,14 @@ adminRouter.delete(
   '/packages/:id',
   wrap(async (req, res) => {
     await deletePackage(idSchema.parse(req.params.id));
+    res.json({ ok: true });
+  }),
+);
+
+adminRouter.put(
+  '/home-ads',
+  wrap(async (req, res) => {
+    await replaceHomeAds(homeAdsInput.parse(req.body).ads);
     res.json({ ok: true });
   }),
 );

@@ -50,7 +50,7 @@ export function PackagesPage() {
             return product ? [product] : [];
           });
           return (
-            <section key={item.id} className="rounded-2xl border border-line bg-white p-5">
+            <section id={item.id} key={item.id} className="scroll-mt-28 rounded-2xl border border-line bg-white p-5">
               <div className="flex items-start justify-between gap-4">
                 <h2 className="text-xl font-extrabold text-ink">{item.name[locale]}</h2>
                 <p className="shrink-0 text-xl font-extrabold tabular-nums text-ink">{formatMoney(ils(item.priceMinor), locale)}</p>

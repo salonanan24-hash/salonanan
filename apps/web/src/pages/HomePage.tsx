@@ -5,7 +5,7 @@ import { fill, useI18n } from '@/i18n';
 import { useDevelopmentCatalog } from '@/hooks/use-catalog';
 import { usePageTitle } from '@/hooks/use-page-title';
 import { CategoryCard } from '@/components/category/CategoryCard';
-import { HeroCarousel } from '@/components/home/HeroCarousel';
+import { HomeAds } from '@/components/home/HomeAds';
 import { Reveal } from '@/components/home/Reveal';
 import { ProductCarousel } from '@/components/product/ProductCarousel';
 import { ProductGrid } from '@/components/product/ProductGrid';
@@ -38,7 +38,7 @@ export function HomePage() {
           </div>
         ) : (
           <div className="pt-3">
-            <HeroCarousel />
+            <HomeAds />
           </div>
         )}
       </Container>

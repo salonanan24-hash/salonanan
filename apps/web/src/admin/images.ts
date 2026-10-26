@@ -1,8 +1,8 @@
-export function readResizedImages(files: FileList | File[]): Promise<string[]> {
-  return Promise.all([...files].slice(0, 6).map(resizeImage));
+export function readResizedImages(files: FileList | File[], maxEdge = 720): Promise<string[]> {
+  return Promise.all([...files].slice(0, 6).map((file) => resizeImage(file, maxEdge)));
 }
 
-function resizeImage(file: File): Promise<string> {
+function resizeImage(file: File, maxEdge: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error('read'));
@@ -11,7 +11,7 @@ function resizeImage(file: File): Promise<string> {
       const image = new Image();
       image.onerror = () => reject(new Error('image'));
       image.onload = () => {
-        const scale = Math.min(1, 720 / Math.max(image.width, image.height));
+        const scale = Math.min(1, maxEdge / Math.max(image.width, image.height));
         const canvas = document.createElement('canvas');
         canvas.width = Math.max(1, Math.round(image.width * scale));
         canvas.height = Math.max(1, Math.round(image.height * scale));
