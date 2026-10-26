@@ -5,7 +5,15 @@ import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '@/auth/auth-context';
 import { useI18n } from '@/i18n';
 
-export function AccountMenu() {
+export function AccountMenu({
+  className = 'hidden lg:flex',
+  buttonClassName = 'h-14',
+  captionClassName = 'hidden xl:block',
+}: {
+  className?: string;
+  buttonClassName?: string;
+  captionClassName?: string;
+}) {
   const { messages } = useI18n();
   const auth = useAuth();
   const location = useLocation();
@@ -39,10 +47,10 @@ export function AccountMenu() {
       <Link
         to="/login"
         aria-label={messages.header.account}
-        className="group relative hidden h-14 min-w-11 flex-col items-center justify-center rounded-xl px-1.5 text-ink transition duration-200 hover:-translate-y-0.5 hover:bg-[#f4f7fb] hover:text-brand-blue lg:flex"
+        className={`group relative min-w-11 flex-col items-center justify-center rounded-xl px-1.5 text-ink transition duration-200 hover:-translate-y-0.5 hover:bg-[#f4f7fb] hover:text-brand-blue ${buttonClassName} ${className}`}
       >
         <UserRound className="h-5 w-5" aria-hidden="true" />
-        <span className="mt-0.5 hidden text-[11px] font-bold leading-4 xl:block">{messages.header.account}</span>
+        <span className={`mt-0.5 text-[10px] font-bold leading-none xl:text-[11px] xl:leading-4 ${captionClassName}`}>{messages.header.account}</span>
       </Link>
     );
   }
@@ -50,17 +58,17 @@ export function AccountMenu() {
   const admin = isAdminEmail(auth.user.email);
 
   return (
-    <div ref={rootRef} className="relative hidden lg:block">
+    <div ref={rootRef} className={`relative ${className}`}>
       <button
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={menuId}
         onClick={() => setOpen((current) => !current)}
-        className="group relative flex h-14 min-w-11 flex-col items-center justify-center rounded-xl px-1.5 text-ink transition duration-200 hover:-translate-y-0.5 hover:bg-[#f4f7fb] hover:text-brand-blue"
+        className={`group relative flex min-w-11 flex-col items-center justify-center rounded-xl px-1.5 text-ink transition duration-200 hover:-translate-y-0.5 hover:bg-[#f4f7fb] hover:text-brand-blue ${buttonClassName}`}
       >
         <UserRound className="h-5 w-5" aria-hidden="true" />
-        <span className="mt-0.5 hidden text-[11px] font-bold leading-4 xl:block">{messages.header.account}</span>
+        <span className={`mt-0.5 text-[10px] font-bold leading-none xl:text-[11px] xl:leading-4 ${captionClassName}`}>{messages.header.account}</span>
       </button>
       {open ? (
         <div

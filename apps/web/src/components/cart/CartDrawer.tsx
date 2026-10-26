@@ -73,7 +73,7 @@ export function CartDrawer({ open, onClose }: CartDrawerProps) {
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className={`anan-drawer absolute inset-y-0 end-0 flex w-[min(100%,26rem)] flex-col bg-white shadow-[0_0_40px_rgb(23_32_51/0.2)] ${shown ? 'is-open' : ''}`}
+        className={`anan-drawer absolute inset-y-0 end-0 flex w-[min(86vw,26rem)] flex-col bg-white shadow-[0_0_40px_rgb(23_32_51/0.2)] ${shown ? 'is-open' : ''}`}
       >
         <div className="flex items-center justify-between border-b border-line px-4 py-4">
           <h2 id={titleId} className="text-xl font-extrabold text-ink">

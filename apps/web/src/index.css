@@ -129,8 +129,35 @@ html[lang='ar'] {
   transform: translate3d(100%, 0, 0);
 }
 
-.anan-cat-panel.is-open {
+.anan-cat-panel.is-open,
+[dir='rtl'] .anan-cat-panel.is-open {
   transform: translate3d(0, 0, 0);
+}
+
+.anan-menu-viewport {
+  overflow: hidden;
+  transition: height 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.anan-menu-track {
+  display: flex;
+  width: 200%;
+  align-items: flex-start;
+  transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.anan-menu-track.is-drilled {
+  transform: translate3d(-50%, 0, 0);
+}
+
+[dir='rtl'] .anan-menu-track.is-drilled {
+  transform: translate3d(50%, 0, 0);
+}
+
+.anan-menu-page {
+  width: 50%;
+  min-width: 0;
+  flex: 0 0 50%;
 }
 
 .anan-sheen {
@@ -151,7 +178,9 @@ html[lang='ar'] {
 
   .anan-backdrop,
   .anan-drawer,
-  .anan-cat-panel {
+  .anan-cat-panel,
+  .anan-menu-viewport,
+  .anan-menu-track {
     transition: none;
   }
 

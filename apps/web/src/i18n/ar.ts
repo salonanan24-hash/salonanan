@@ -41,6 +41,7 @@ export const ar: typeof he = {
     main: 'التنقل الرئيسي',
     allCategories: 'كل الفئات',
     backToMenu: 'العودة إلى القائمة السابقة',
+    showAll: 'عرض الكل',
   },
   lang: {
     switchLabel: 'اختيار اللغة',

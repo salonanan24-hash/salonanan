@@ -107,7 +107,7 @@ function CategoryShortcuts() {
     <Container className="py-6">
       <div id="categories" className="scroll-mt-40">
         <RuledTitle title={messages.categories.title} />
-        <ul className="grid grid-cols-4 gap-x-3 gap-y-6 sm:grid-cols-6">
+        <ul className="grid grid-cols-3 gap-x-3 gap-y-6 sm:grid-cols-6 xl:grid-cols-9 xl:gap-x-1">
           {data.categories.map((category, index) => (
             <li key={category.id} className="anan-rise" style={{ animationDelay: `${index * 45}ms` }}>
               <CategoryCard category={category} />

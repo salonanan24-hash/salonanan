@@ -107,10 +107,10 @@ export function ProductCard({ product }: ProductCardProps) {
             onMouseEnter={() => setCartHot(true)}
             onMouseLeave={() => setCartHot(false)}
             onClick={() => pushToast(add(product.id) === 'max' ? 'cartMax' : 'cartAdded')}
-            className="pointer-events-auto inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border border-brand-blue bg-white px-3 text-[13px] font-bold text-brand-blue transition duration-200 hover:border-brand-blue hover:bg-brand-blue hover:text-white"
+            className="pointer-events-auto inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-brand-blue bg-white px-2.5 text-xs font-bold text-brand-blue transition duration-200 hover:border-brand-blue hover:bg-brand-blue hover:text-white sm:h-8 sm:gap-1.5 sm:px-3 sm:text-[13px]"
           >
             <span>{inCart ? messages.product.inCart : messages.product.addShort}</span>
-            <ShoppingCart className="size-4" aria-hidden="true" />
+            <ShoppingCart className="size-3.5 sm:size-4" aria-hidden="true" />
           </button>
         </div>
         {limitNote ? (

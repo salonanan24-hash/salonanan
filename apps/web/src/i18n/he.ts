@@ -39,6 +39,7 @@ export const he = {
     main: 'ניווט ראשי',
     allCategories: 'כל הקטגוריות',
     backToMenu: 'חזרה לתפריט הקודם',
+    showAll: 'הצג הכל',
   },
   lang: {
     switchLabel: 'בחירת שפה',

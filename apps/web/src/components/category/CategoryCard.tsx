@@ -13,7 +13,7 @@ export function CategoryCard({ category }: CategoryCardProps) {
 
   return (
     <Link to={`/category/${category.slug}`} className="group flex flex-col items-center gap-2.5 px-1 py-1">
-      <span className="flex h-20 w-full items-center justify-center sm:h-24">
+      <span className="flex h-[6.5rem] w-full items-center justify-center sm:h-24 xl:h-[6.5rem]">
         <img
           src={image}
           alt=""
@@ -24,7 +24,7 @@ export function CategoryCard({ category }: CategoryCardProps) {
           className="h-full w-full object-contain transition duration-300 group-hover:-translate-y-2"
         />
       </span>
-      <span className="line-clamp-2 text-center text-sm font-medium leading-5 text-ink transition-colors duration-300 group-hover:text-brand-red">
+      <span className="line-clamp-2 text-center text-sm font-medium leading-5 text-ink transition-colors duration-300 group-hover:text-brand-red xl:text-[15px]">
         {category.name[locale]}
       </span>
     </Link>

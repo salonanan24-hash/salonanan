@@ -30,26 +30,63 @@ export function Header() {
   return (
     <header className="border-b border-line bg-white">
       <Container>
-        <div className="flex items-center gap-3 py-3 lg:gap-5 lg:py-3.5">
+        <div className="relative flex items-center justify-between py-1.5 lg:hidden">
+          <div className="flex items-center">
+            <button
+              ref={menuRef}
+              type="button"
+              className="inline-flex h-auto min-h-12 min-w-11 flex-col items-center justify-center rounded-xl px-1 py-1 text-ink transition hover:bg-[#f4f7fb]"
+              aria-expanded={open}
+              aria-label={open ? messages.nav.close : messages.nav.open}
+              onClick={() => setOpen(true)}
+            >
+              <Menu className="h-5 w-5" aria-hidden="true" />
+              <span className="mt-0.5 text-[10px] font-bold leading-none">{messages.nav.menu}</span>
+            </button>
+            <LanguageSwitcher menuSide="start" buttonClassName="h-auto min-h-12 py-1" captionClassName="block" />
+          </div>
+          <Link to="/" className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-lg transition hover:opacity-90">
+            <img
+              src="/brand/anan-logo.png"
+              alt={messages.brand.logoAlt}
+              width={2102}
+              height={372}
+              className="h-9 w-auto max-w-[42vw]"
+            />
+          </Link>
+          <div className="flex items-center">
+            <AccountMenu className="flex lg:hidden" buttonClassName="h-auto min-h-12 py-1" captionClassName="block" />
+            <CartButton
+              count={count}
+              label={fill(messages.header.cartCount, { count })}
+              open={cartOpen}
+              caption={messages.header.cart}
+              onClick={() => setCartOpen(true)}
+              buttonClassName="h-auto min-h-12 py-1"
+              captionClassName="block"
+            />
+          </div>
+        </div>
+        <div className="hidden items-center gap-3 py-3 lg:flex lg:gap-5 lg:py-3.5">
           <Link to="/" className="shrink-0 rounded-lg transition hover:opacity-90">
             <img
               src="/brand/anan-logo.png"
               alt={messages.brand.logoAlt}
               width={2102}
               height={372}
-              className="h-9 w-auto lg:h-12"
+              className="h-12 w-auto"
             />
           </Link>
 
-          <div className="hidden min-w-0 flex-1 lg:block">
+          <div className="min-w-0 flex-1">
             <SearchBar id="store-search" />
           </div>
 
           <div className="ms-auto flex items-center gap-1">
-            <div className="me-1 hidden lg:block">
+            <div className="me-1">
               <LanguageSwitcher />
             </div>
-            <AccountMenu />
+            <AccountMenu className="hidden lg:flex" />
             <HeaderLink
               to="/favorites"
               label={messages.header.favorites}
@@ -68,49 +105,58 @@ export function Header() {
             >
               <Scale className="h-5 w-5" aria-hidden="true" />
             </HeaderLink>
-            <button
-              type="button"
-              aria-label={fill(messages.header.cartCount, { count })}
-              aria-expanded={cartOpen}
-              aria-controls="cart-drawer"
+            <CartButton
+              count={count}
+              label={fill(messages.header.cartCount, { count })}
+              open={cartOpen}
+              caption={messages.header.cart}
               onClick={() => setCartOpen(true)}
-              className="group relative flex h-14 min-w-11 flex-col items-center justify-center rounded-xl px-1.5 text-ink transition duration-200 hover:-translate-y-0.5 hover:bg-[#f4f7fb] hover:text-brand-blue"
-            >
-              <span className="relative">
-                <ShoppingBag className="h-5 w-5" aria-hidden="true" />
-                {count > 0 ? <CountBadge value={count} /> : null}
-              </span>
-              <span className="mt-0.5 hidden text-[11px] font-bold leading-4 xl:block">
-                {messages.header.cart}
-              </span>
-            </button>
-            <button
-              ref={menuRef}
-              type="button"
-              className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-ink transition hover:bg-[#f4f7fb] lg:hidden"
-              aria-expanded={open}
-              aria-label={open ? messages.nav.close : messages.nav.open}
-              onClick={() => setOpen(true)}
-            >
-              <Menu className="h-5 w-5" aria-hidden="true" />
-            </button>
+              captionClassName="hidden xl:block"
+            />
           </div>
         </div>
         <div className="pb-3 lg:hidden">
           <SearchBar id="store-search-mobile" />
         </div>
       </Container>
-      <MobileNav
-        open={open}
-        onClose={() => setOpen(false)}
-        returnFocusRef={menuRef}
-        onOpenCart={() => {
-          setOpen(false);
-          setCartOpen(true);
-        }}
-      />
+      <MobileNav open={open} onClose={() => setOpen(false)} returnFocusRef={menuRef} />
       <CartDrawer open={cartOpen} onClose={() => setCartOpen(false)} />
     </header>
+  );
+}
+
+function CartButton({
+  count,
+  label,
+  open,
+  caption,
+  captionClassName = 'hidden xl:block',
+  buttonClassName = 'h-14',
+  onClick,
+}: {
+  count: number;
+  label: string;
+  open: boolean;
+  caption: string;
+  captionClassName?: string;
+  buttonClassName?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-expanded={open}
+      aria-controls="cart-drawer"
+      onClick={onClick}
+      className={`group relative flex min-w-11 flex-col items-center justify-center rounded-xl px-1.5 text-ink transition duration-200 hover:-translate-y-0.5 hover:bg-[#f4f7fb] hover:text-brand-blue ${buttonClassName}`}
+    >
+      <span className="relative">
+        <ShoppingBag className="h-5 w-5" aria-hidden="true" />
+        {count > 0 ? <CountBadge value={count} /> : null}
+      </span>
+      <span className={`mt-0.5 text-[10px] font-bold leading-none xl:text-[11px] xl:leading-4 ${captionClassName}`}>{caption}</span>
+    </button>
   );
 }
 
