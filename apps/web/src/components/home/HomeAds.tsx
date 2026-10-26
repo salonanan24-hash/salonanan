@@ -10,7 +10,7 @@ import { fill, useI18n } from '@/i18n';
 import { apiBase } from '@/lib/api-url';
 import { primaryImage, type StoreCatalog } from '@/data/catalog';
 
-const ROTATE_MS = 4000;
+const ROTATE_MS = 5000;
 const apiUrl = apiBase();
 
 type TargetKind = 'none' | 'category' | 'subcategory' | 'brand' | 'product' | 'package';
