@@ -103,15 +103,16 @@ function detailsFrom(
   category: CatalogPayload['categories'][number],
 ) {
   const details = {
-    spec: [] as { label: { he: string; ar: string }; value: string }[],
-    features: [] as { label: { he: string; ar: string }; value: string }[],
-    info: [] as { label: { he: string; ar: string }; value: string }[],
+    spec: [] as { label: { he: string; ar: string }; value: { he: string; ar: string } }[],
+    features: [] as { label: { he: string; ar: string }; value: { he: string; ar: string } }[],
+    info: [] as { label: { he: string; ar: string }; value: { he: string; ar: string } }[],
   };
   for (const field of category.fields) {
-    const value = product.specs[field.id]?.trim() ?? '';
-    if (!value) continue;
+    const he = product.specs[field.id]?.trim() ?? '';
+    const ar = product.specsAr[field.id]?.trim() || he;
+    if (!he && !ar) continue;
     const section = field.section === 'spec' || field.section === 'info' ? field.section : 'features';
-    details[section].push({ label: field.label, value });
+    details[section].push({ label: field.label, value: { he: he || ar, ar } });
   }
   return details;
 }

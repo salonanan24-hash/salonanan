@@ -55,6 +55,7 @@ export type AdminProduct = {
   categoryId: string;
   subcategoryId: string;
   specs: Record<string, string>;
+  specsAr: Record<string, string>;
   variants: AdminVariant[];
 };
 

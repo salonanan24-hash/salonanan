@@ -44,6 +44,7 @@ const productSchema = z.object({
   categoryId: idSchema,
   subcategoryId: z.string().max(80),
   specs: z.record(z.string().max(8_000)).refine((value) => Object.keys(value).length <= 40),
+  specsAr: z.record(z.string().max(8_000)).default({}),
   variants: z.array(variantSchema).max(20),
 });
 
@@ -144,7 +145,7 @@ export async function readCatalog(): Promise<CatalogPayload> {
       client.from('category_fields').select('id, category_id, label_he, label_ar, field_type, section, sort_order').order('sort_order'),
       client.from('brands').select('id, slug, name, image_src, sort_order').order('sort_order'),
       client.from('products').select('id, name_he, name_ar, price_minor, brand_id, category_id, subcategory_id, sort_order').order('sort_order'),
-      client.from('product_specs').select('product_id, field_id, value'),
+      client.from('product_specs').select('product_id, field_id, value, value_ar'),
       client.from('product_variants').select('id, product_id, color, color_hex, stock, is_active, sort_order').order('sort_order'),
       client.from('variant_images').select('id, variant_id, src, sort_order').order('sort_order'),
       client.from('coupons').select('id, code, kind, value, ends_at, sort_order').order('sort_order'),
@@ -194,6 +195,11 @@ export async function readCatalog(): Promise<CatalogPayload> {
       categoryId: product.category_id,
       subcategoryId: product.subcategory_id ?? '',
       specs: Object.fromEntries((specsByProduct.get(product.id) ?? []).map((item) => [item.field_id, item.value])),
+      specsAr: Object.fromEntries(
+        (specsByProduct.get(product.id) ?? [])
+          .filter((item) => (item.value_ar ?? '').trim())
+          .map((item) => [item.field_id, item.value_ar ?? '']),
+      ),
       variants: (variantsByProduct.get(product.id) ?? []).map((variant) => ({
         id: variant.id,
         color: variant.color,
@@ -339,7 +345,12 @@ export async function importCatalog(input: CatalogPayload): Promise<CatalogPaylo
   const specs = input.products.flatMap((product) =>
     Object.entries(product.specs)
       .filter(([, value]) => value.trim())
-      .map(([fieldId, value]) => ({ product_id: product.id, field_id: fieldId, value })),
+      .map(([fieldId, value]) => ({
+        product_id: product.id,
+        field_id: fieldId,
+        value,
+        value_ar: product.specsAr[fieldId] ?? '',
+      })),
   );
   if (specs.length > 0) check((await client.from('product_specs').insert(specs)).error);
 
@@ -580,7 +591,12 @@ export async function saveProduct(input: z.infer<typeof productSchema>) {
 
   const specs = Object.entries(input.specs)
     .filter(([, value]) => value.trim())
-    .map(([fieldId, value]) => ({ product_id: input.id, field_id: fieldId, value }));
+    .map(([fieldId, value]) => ({
+      product_id: input.id,
+      field_id: fieldId,
+      value,
+      value_ar: input.specsAr[fieldId] ?? '',
+    }));
   if (specs.length > 0) check((await client.from('product_specs').insert(specs)).error);
 }
 

@@ -33,6 +33,40 @@ export async function adminRequest<T>(path: string, init?: RequestInit): Promise
   return (await response.json()) as T;
 }
 
+export async function fillProductFromLink(input: { model: string; url: string }): Promise<{
+  draft: {
+    nameHe: string;
+    nameAr: string;
+    brandId: string;
+    categoryId: string;
+    subcategoryId: string;
+    specs: Record<string, string>;
+    specsAr: Record<string, string>;
+  };
+  created: { brand: string | null; category: string | null; subcategory: string | null; fields: string[] };
+}> {
+  const token = await accessToken();
+  const response = await fetch(`${apiUrl}/api/admin/products/intake`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const body = (await response.json().catch(() => null)) as { error?: { code?: string } } | null;
+  if (!response.ok) throw new Error(body?.error?.code || 'agent_failed');
+  return body as {
+    draft: {
+      nameHe: string;
+      nameAr: string;
+      brandId: string;
+      categoryId: string;
+      subcategoryId: string;
+      specs: Record<string, string>;
+      specsAr: Record<string, string>;
+    };
+    created: { brand: string | null; category: string | null; subcategory: string | null; fields: string[] };
+  };
+}
+
 export function loadCatalog() {
   return adminRequest<CatalogResponse>('/api/admin/catalog');
 }

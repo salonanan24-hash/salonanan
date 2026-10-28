@@ -8,6 +8,9 @@ const envSchema = z.object({
   SUPABASE_URL: z.string().default(''),
   SUPABASE_ANON_KEY: z.string().default(''),
   SUPABASE_SERVICE_ROLE_KEY: z.string().default(''),
+  OPENAI_API_KEY: z.string().default(''),
+  OPENAI_MODEL: z.string().default('gpt-4o-mini'),
+  OPENAI_BASE_URL: z.string().default('https://api.openai.com/v1'),
 });
 
 function readUrl(value: string): string {
@@ -34,6 +37,9 @@ const parsed = envSchema.parse({
   SUPABASE_URL: process.env.SUPABASE_URL,
   SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY,
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  OPENAI_MODEL: process.env.OPENAI_MODEL,
+  OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
 });
 
 export const config = {
@@ -45,7 +51,22 @@ export const config = {
   supabaseUrl: readUrl(parsed.SUPABASE_URL),
   supabaseAnonKey: parsed.SUPABASE_ANON_KEY.trim(),
   supabaseServiceRoleKey: parsed.SUPABASE_SERVICE_ROLE_KEY.trim(),
+  openaiApiKey: parsed.OPENAI_API_KEY.trim(),
+  openaiModel: parsed.OPENAI_MODEL.trim() || 'gpt-4o-mini',
+  openaiBaseUrl: httpBase(parsed.OPENAI_BASE_URL),
 };
+
+function httpBase(value: string): string {
+  const trimmed = value.trim().replace(/\/$/, '');
+  if (!trimmed) return 'https://api.openai.com/v1';
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return 'https://api.openai.com/v1';
+    return trimmed;
+  } catch {
+    return 'https://api.openai.com/v1';
+  }
+}
 
 function isVercelOrigin(origin: string): boolean {
   try {

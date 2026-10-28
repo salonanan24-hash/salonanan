@@ -58,11 +58,11 @@ export function ProductDetails({ name, details }: ProductDetailsProps) {
               <dl>
                 {block.items.map((item) => (
                   <div
-                    key={item.label.he + item.label.ar + item.value}
+                    key={item.label.he + item.label.ar + item.value.he}
                     className="grid grid-cols-[minmax(7rem,1fr)_minmax(0,1.5fr)_minmax(7rem,1fr)] items-center border-b border-[#e7ebf2] px-5 py-4 last:border-b-0"
                   >
                     <dt className="text-sm font-bold text-ink">{item.label[locale]}</dt>
-                    <dd className="text-center text-sm text-ink">{displayValue(item.value, copy.yes, copy.no)}</dd>
+                    <dd className="text-center text-sm text-ink">{displayValue(item.value[locale], copy.yes, copy.no)}</dd>
                     <span aria-hidden="true" />
                   </div>
                 ))}
@@ -72,13 +72,18 @@ export function ProductDetails({ name, details }: ProductDetailsProps) {
               <div className="border border-t-0 border-brand-blue px-4 py-5 sm:px-6">
                 {block.id === 'spec' ? <SpecBody name={name} items={block.items} /> : null}
                 {block.id === 'info' ? (
-                  <ul className="list-disc space-y-3 ps-5 text-sm leading-7 text-ink">
-                    {block.items.flatMap((item) =>
-                      paragraphs(item.value).map((line, index) => (
-                        <li key={`${item.label.he}-${index}`}>{line}</li>
-                      )),
-                    )}
-                  </ul>
+                  <div className="space-y-5">
+                    {block.items.map((item) => (
+                      <div key={item.label.he + item.label.ar}>
+                        <h4 className="text-sm font-extrabold text-ink">{item.label[locale]}</h4>
+                        <ul className="mt-2 list-disc space-y-2 ps-5 text-sm leading-7 text-ink">
+                          {paragraphs(item.value[locale]).map((line, index) => (
+                            <li key={index}>{line}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
                 ) : null}
               </div>
             ) : null}
@@ -97,7 +102,7 @@ function SpecBody({ name, items }: { name: string; items: ProductDetail[] }) {
       {items.map((item) => (
         <div key={item.label.he + item.label.ar} className="mt-4">
           <h4 className="text-sm font-extrabold text-ink">{item.label[locale]}</h4>
-          {paragraphs(item.value).map((line, index) => (
+          {paragraphs(item.value[locale]).map((line, index) => (
             <p key={index} className="mt-3 text-sm leading-7 text-ink">
               {line}
             </p>

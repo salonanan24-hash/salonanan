@@ -34,6 +34,7 @@ import {
 import { countRegisteredCustomers, listAllOrders, updateOrderStatus } from '../orders/orders.js';
 import { homeAdsInput, replaceHomeAds } from '../home-ads/home-ads.js';
 import { deletePackage, listPackages, packageInput, savePackage } from '../packages/packages.js';
+import { intakeProduct } from './product-agent.js';
 import { requireAdmin } from './require-admin.js';
 import { wrap } from './wrap.js';
 
@@ -185,6 +186,13 @@ adminRouter.delete(
   wrap(async (req, res) => {
     await deleteBrand(idSchema.parse(req.params.id));
     res.json({ ok: true });
+  }),
+);
+
+adminRouter.post(
+  '/products/intake',
+  wrap(async (req, res) => {
+    res.json(await intakeProduct(req.body));
   }),
 );
 

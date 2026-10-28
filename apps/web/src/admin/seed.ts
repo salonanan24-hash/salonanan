@@ -95,6 +95,7 @@ function toProduct(product: DemoProduct): AdminProduct {
     categoryId: `cat-${product.categorySlug}`,
     subcategoryId: sub && !sub.id.startsWith('category-') ? sub.id : '',
     specs: specsFor(product.categorySlug, product.attributes),
+    specsAr: {},
     variants: [
       {
         id: `${product.id}-variant`,

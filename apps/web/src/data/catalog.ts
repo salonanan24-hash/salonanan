@@ -485,7 +485,7 @@ const productAttributes: Record<string, DemoAttributes> = {
 
 export type ProductDetail = {
   label: LocalizedText;
-  value: string;
+  value: LocalizedText;
 };
 
 export type ProductDetails = {

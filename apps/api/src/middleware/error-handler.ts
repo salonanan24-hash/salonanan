@@ -17,6 +17,7 @@ export const errorHandler: ErrorRequestHandler = (error, _req, res, _next) => {
   }
 
   if (error instanceof AppError) {
+    if (error.status >= 422) logger.warn('request failed', { status: error.status, code: error.code });
     const body: {
       error: { code: string; message: string; details?: unknown };
     } = {

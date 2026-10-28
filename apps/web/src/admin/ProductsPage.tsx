@@ -2,6 +2,7 @@ import { formatMoney, ils } from '@anan/shared';
 import { Pencil, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { readResizedImages } from '@/admin/images';
+import { fillProductFromLink } from '@/admin/remote';
 import { nid, useAdminStore } from '@/admin/store';
 import type { AdminField, AdminProduct, AdminVariant, FieldSection } from '@/admin/types';
 import {
@@ -28,6 +29,7 @@ type Draft = {
   categoryId: string;
   subcategoryId: string;
   specs: Record<string, string>;
+  specsAr: Record<string, string>;
   variants: AdminVariant[];
 };
 
@@ -45,6 +47,7 @@ function blankDraft(brandId = '', categoryId = ''): Draft {
     categoryId,
     subcategoryId: '',
     specs: {},
+    specsAr: {},
     variants: [blankVariant()],
   };
 }
@@ -69,6 +72,11 @@ export function ProductsPage() {
   const [categoryFilter, setCategoryFilter] = useState('');
   const [error, setError] = useState('');
   const [draft, setDraft] = useState<Draft>(() => blankDraft());
+  const [agentModel, setAgentModel] = useState('');
+  const [agentUrl, setAgentUrl] = useState('');
+  const [agentFile, setAgentFile] = useState<File | null>(null);
+  const [agentBusy, setAgentBusy] = useState(false);
+  const [agentNote, setAgentNote] = useState('');
 
   const category = categories.find((item) => item.id === draft.categoryId);
   const filtered = useMemo(() => {
@@ -88,6 +96,7 @@ export function ProductsPage() {
         subcategory?.name.he,
         subcategory?.name.ar,
         ...Object.values(product.specs),
+        ...Object.values(product.specsAr),
         ...product.variants.map((variant) => variant.color),
       ]
         .join(' ')
@@ -107,6 +116,7 @@ export function ProductsPage() {
       categoryId: product.categoryId,
       subcategoryId: product.subcategoryId,
       specs: product.specs,
+      specsAr: product.specsAr,
       variants: product.variants.length > 0 ? product.variants : [blankVariant()],
     });
   }
@@ -145,6 +155,53 @@ export function ProductsPage() {
     }));
   }
 
+  async function fillFromLink() {
+    if (!agentModel.trim()) {
+      setAgentNote(copy.agentFailed);
+      return;
+    }
+    setAgentBusy(true);
+    setAgentNote(copy.agentWorking);
+    try {
+      const result = await fillProductFromLink({ model: agentModel.trim(), url: agentUrl.trim() });
+      const sources = agentFile ? await readResizedImages([agentFile]) : [];
+      await refresh();
+      setDraft((current) => {
+        const variants = current.variants.length > 0 ? current.variants : [blankVariant()];
+        const first = variants[0] ?? blankVariant();
+        return {
+          ...current,
+          nameHe: result.draft.nameHe,
+          nameAr: result.draft.nameAr,
+          brandId: result.draft.brandId,
+          categoryId: result.draft.categoryId,
+          subcategoryId: result.draft.subcategoryId,
+          specs: result.draft.specs,
+          specsAr: result.draft.specsAr,
+          variants: [
+            {
+              ...first,
+              images: [
+                ...sources.map((src) => ({ id: nid('img'), src })),
+                ...first.images,
+              ],
+            },
+            ...variants.slice(1),
+          ],
+        };
+      });
+      const added = [result.created.brand, result.created.category, result.created.subcategory, ...result.created.fields].filter(
+        (item): item is string => Boolean(item),
+      );
+      setAgentNote(added.length > 0 ? `${copy.agentDone} ${fill(copy.agentAdded, { items: added.join(', ') })}` : copy.agentDone);
+    } catch (caught) {
+      const code = caught instanceof Error ? caught.message : '';
+      setAgentNote(code === 'agent_unconfigured' ? copy.agentUnconfigured : code === 'page_blocked' ? copy.agentBlocked : copy.agentFailed);
+    } finally {
+      setAgentBusy(false);
+    }
+  }
+
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const shekels = Number(draft.price);
@@ -156,6 +213,9 @@ export function ProductsPage() {
     const specs = Object.fromEntries(
       Object.entries(draft.specs).filter(([key, value]) => allowed.has(key) && value.trim() !== ''),
     );
+    const specsAr = Object.fromEntries(
+      Object.entries(draft.specsAr).filter(([key, value]) => allowed.has(key) && specs[key] && value.trim() !== ''),
+    );
     const product: AdminProduct = {
       id: draft.id ?? nid('product'),
       name: { he: draft.nameHe.trim(), ar: draft.nameAr.trim() || draft.nameHe.trim() },
@@ -164,6 +224,7 @@ export function ProductsPage() {
       categoryId: draft.categoryId,
       subcategoryId: draft.subcategoryId,
       specs,
+      specsAr,
       variants: draft.variants.map((variant) => ({
         ...variant,
         color: variant.color.trim(),
@@ -247,6 +308,36 @@ export function ProductsPage() {
           <Panel>
             <form className="space-y-4" onSubmit={onSubmit}>
               <h2 className="text-lg font-extrabold">{draft.id ? copy.edit : copy.add}</h2>
+              <div className="space-y-3 rounded-2xl border border-line p-3">
+                <div>
+                  <p className="text-sm font-extrabold">{copy.agentTitle}</p>
+                  <p className="mt-1 text-xs leading-5 text-muted">{copy.agentHint}</p>
+                </div>
+                <Field label={copy.agentModel}>
+                  <TextInput value={agentModel} onChange={(event) => setAgentModel(event.target.value)} />
+                </Field>
+                <Field label={copy.agentUrl} hint={copy.optional}>
+                  <TextInput value={agentUrl} inputMode="url" onChange={(event) => setAgentUrl(event.target.value)} />
+                </Field>
+                <Field label={copy.agentImage} hint={copy.optional}>
+                  <label className="inline-flex h-10 cursor-pointer items-center rounded-xl border border-dashed border-line px-3 text-xs font-semibold text-muted">
+                    {agentFile ? agentFile.name : copy.agentImage}
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="sr-only"
+                      onChange={(event) => {
+                        setAgentFile(event.target.files?.[0] ?? null);
+                        event.target.value = '';
+                      }}
+                    />
+                  </label>
+                </Field>
+                <PrimaryButton type="button" disabled={agentBusy} onClick={() => void fillFromLink()}>
+                  {agentBusy ? copy.agentWorking : copy.agentRun}
+                </PrimaryButton>
+                {agentNote ? <p className="text-sm text-muted">{agentNote}</p> : null}
+              </div>
               <Field label={copy.name}>
                 <TextInput value={draft.nameHe} onChange={(event) => setDraft({ ...draft, nameHe: event.target.value })} required />
               </Field>
@@ -307,7 +398,9 @@ export function ProductsPage() {
                       section={section}
                       fields={category.fields.filter((item) => (item.section ?? 'features') === section)}
                       specs={draft.specs}
+                      specsAr={draft.specsAr}
                       onChange={(id, value) => setDraft({ ...draft, specs: { ...draft.specs, [id]: value } })}
+                      onChangeAr={(id, value) => setDraft({ ...draft, specsAr: { ...draft.specsAr, [id]: value } })}
                     />
                   ))}
                 </div>
@@ -455,12 +548,16 @@ function ProductFields({
   section,
   fields,
   specs,
+  specsAr,
   onChange,
+  onChangeAr,
 }: {
   section: FieldSection;
   fields: AdminField[];
   specs: Record<string, string>;
+  specsAr: Record<string, string>;
   onChange: (id: string, value: string) => void;
+  onChangeAr: (id: string, value: string) => void;
 }) {
   const { locale, messages } = useI18n();
   const copy = messages.desk.products;
@@ -470,25 +567,39 @@ function ProductFields({
   return (
     <div className="space-y-3">
       <p className="text-sm font-extrabold text-ink">{title}</p>
-      {fields.map((item) => (
-        <Field key={item.id} label={item.label[locale]} hint={section === 'features' ? undefined : copy.longText}>
-          {section !== 'features' ? (
-            <TextArea value={specs[item.id] ?? ''} onChange={(event) => onChange(item.id, event.target.value)} />
-          ) : item.type === 'boolean' ? (
-            <SelectInput value={specs[item.id] ?? ''} onChange={(event) => onChange(item.id, event.target.value)}>
-              <option value="">{copy.none}</option>
-              <option value="yes">{copy.yes}</option>
-              <option value="no">{copy.no}</option>
-            </SelectInput>
-          ) : (
-            <TextInput
-              inputMode={item.type === 'number' ? 'decimal' : 'text'}
-              value={specs[item.id] ?? ''}
-              onChange={(event) => onChange(item.id, event.target.value)}
-            />
-          )}
-        </Field>
-      ))}
+      {fields.map((item) => {
+        const bilingual = item.type !== 'boolean' && item.type !== 'number';
+        return (
+          <div key={item.id} className="space-y-2">
+            <Field label={item.label[locale]} hint={section === 'features' ? undefined : copy.longText}>
+              {section !== 'features' ? (
+                <TextArea value={specs[item.id] ?? ''} onChange={(event) => onChange(item.id, event.target.value)} />
+              ) : item.type === 'boolean' ? (
+                <SelectInput value={specs[item.id] ?? ''} onChange={(event) => onChange(item.id, event.target.value)}>
+                  <option value="">{copy.none}</option>
+                  <option value="yes">{copy.yes}</option>
+                  <option value="no">{copy.no}</option>
+                </SelectInput>
+              ) : (
+                <TextInput
+                  inputMode={item.type === 'number' ? 'decimal' : 'text'}
+                  value={specs[item.id] ?? ''}
+                  onChange={(event) => onChange(item.id, event.target.value)}
+                />
+              )}
+            </Field>
+            {bilingual ? (
+              <Field label={copy.valueAr}>
+                {section !== 'features' ? (
+                  <TextArea value={specsAr[item.id] ?? ''} onChange={(event) => onChangeAr(item.id, event.target.value)} />
+                ) : (
+                  <TextInput value={specsAr[item.id] ?? ''} onChange={(event) => onChangeAr(item.id, event.target.value)} />
+                )}
+              </Field>
+            ) : null}
+          </div>
+        );
+      })}
     </div>
   );
 }
