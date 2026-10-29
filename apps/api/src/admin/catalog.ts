@@ -27,10 +27,17 @@ const imageSchema = z.object({
   src: z.string().trim().min(1).max(2_000_000),
 });
 
+const specMap = z.record(z.string().max(8_000)).refine((value) => Object.keys(value).length <= 80);
+
 const variantSchema = z.object({
   id: idSchema,
   color: z.string().trim().max(80),
   colorHex: z.string().trim().max(20),
+  sku: z.string().trim().max(80).default(''),
+  priceMinor: z.number().int().min(0).max(100_000_000).nullable().default(null),
+  subcategoryId: z.string().max(80).default(''),
+  specs: specMap.default({}),
+  specsAr: specMap.default({}),
   stock: z.number().int().min(0).max(1_000_000),
   active: z.boolean(),
   images: z.array(imageSchema).max(12),
@@ -43,7 +50,7 @@ const productSchema = z.object({
   brandId: idSchema,
   categoryId: idSchema,
   subcategoryId: z.string().max(80),
-  specs: z.record(z.string().max(8_000)).refine((value) => Object.keys(value).length <= 40),
+  specs: specMap,
   specsAr: z.record(z.string().max(8_000)).default({}),
   variants: z.array(variantSchema).max(20),
 });
@@ -66,7 +73,7 @@ const catalogSchema = z.object({
               section: fieldSectionSchema.default('features'),
             }),
           )
-          .max(40),
+          .max(80),
       }),
     )
     .max(80),
@@ -138,7 +145,7 @@ export async function isCatalogEmpty(): Promise<boolean> {
 
 export async function readCatalog(): Promise<CatalogPayload> {
   const client = db();
-  const [categories, subcategories, fields, brands, products, specs, variants, images, coupons, settings, zones] =
+  const [categories, subcategories, fields, brands, products, specs, variants, variantSpecs, images, coupons, settings, zones] =
     await Promise.all([
       client.from('categories').select('id, slug, name_he, name_ar, image_src, sort_order').order('sort_order'),
       client.from('subcategories').select('id, category_id, name_he, name_ar, image_src, sort_order').order('sort_order'),
@@ -146,14 +153,15 @@ export async function readCatalog(): Promise<CatalogPayload> {
       client.from('brands').select('id, slug, name, image_src, sort_order').order('sort_order'),
       client.from('products').select('id, name_he, name_ar, price_minor, brand_id, category_id, subcategory_id, sort_order').order('sort_order'),
       client.from('product_specs').select('product_id, field_id, value, value_ar'),
-      client.from('product_variants').select('id, product_id, color, color_hex, stock, is_active, sort_order').order('sort_order'),
+      client.from('product_variants').select('id, product_id, color, color_hex, sku, price_minor, subcategory_id, stock, is_active, sort_order').order('sort_order'),
+      client.from('variant_specs').select('variant_id, field_id, value, value_ar'),
       client.from('variant_images').select('id, variant_id, src, sort_order').order('sort_order'),
       client.from('coupons').select('id, code, kind, value, ends_at, sort_order').order('sort_order'),
       client.from('store_settings').select('phone, accent').eq('id', true).maybeSingle(),
       client.from('shipping_zones').select('id, name, name_ar, price_minor, is_active, sort_order').order('sort_order'),
     ]);
 
-  for (const result of [categories, subcategories, fields, brands, products, specs, variants, images, coupons, settings, zones]) {
+  for (const result of [categories, subcategories, fields, brands, products, specs, variants, variantSpecs, images, coupons, settings, zones]) {
     check(result.error);
   }
 
@@ -161,6 +169,7 @@ export async function readCatalog(): Promise<CatalogPayload> {
   const fieldsByCategory = group(fields.data ?? [], (row) => row.category_id);
   const specsByProduct = group(specs.data ?? [], (row) => row.product_id);
   const imagesByVariant = group(images.data ?? [], (row) => row.variant_id);
+  const specsByVariant = group(variantSpecs.data ?? [], (row) => row.variant_id);
   const variantsByProduct = group(variants.data ?? [], (row) => row.product_id);
 
   return {
@@ -204,6 +213,15 @@ export async function readCatalog(): Promise<CatalogPayload> {
         id: variant.id,
         color: variant.color,
         colorHex: variant.color_hex,
+        sku: variant.sku ?? '',
+        priceMinor: variant.price_minor,
+        subcategoryId: variant.subcategory_id ?? '',
+        specs: Object.fromEntries((specsByVariant.get(variant.id) ?? []).map((item) => [item.field_id, item.value])),
+        specsAr: Object.fromEntries(
+          (specsByVariant.get(variant.id) ?? [])
+            .filter((item) => (item.value_ar ?? '').trim())
+            .map((item) => [item.field_id, item.value_ar ?? '']),
+        ),
         stock: variant.stock,
         active: variant.is_active,
         images: (imagesByVariant.get(variant.id) ?? []).map((image) => ({ id: image.id, src: image.src })),
@@ -570,6 +588,9 @@ export async function saveProduct(input: z.infer<typeof productSchema>) {
             product_id: input.id,
             color: variant.color,
             color_hex: variant.colorHex || '#172033',
+            sku: variant.sku,
+            price_minor: variant.priceMinor,
+            subcategory_id: variant.subcategoryId || null,
             stock: variant.stock,
             is_active: variant.active,
             sort_order: index,
@@ -598,6 +619,18 @@ export async function saveProduct(input: z.infer<typeof productSchema>) {
       value_ar: input.specsAr[fieldId] ?? '',
     }));
   if (specs.length > 0) check((await client.from('product_specs').insert(specs)).error);
+
+  const variantSpecRows = input.variants.flatMap((variant) =>
+    Object.entries(variant.specs)
+      .filter(([, value]) => value.trim())
+      .map(([fieldId, value]) => ({
+        variant_id: variant.id,
+        field_id: fieldId,
+        value,
+        value_ar: variant.specsAr[fieldId] ?? '',
+      })),
+  );
+  if (variantSpecRows.length > 0) check((await client.from('variant_specs').insert(variantSpecRows)).error);
 }
 
 export async function deleteProduct(id: string) {

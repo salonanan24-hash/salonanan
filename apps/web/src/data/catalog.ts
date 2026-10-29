@@ -505,12 +505,81 @@ export type StoreCategory = CatalogCategory & {
   subcategories?: StoreSubcategory[];
 };
 
+export type StoreOption = {
+  id: string;
+  sku: string;
+  label: string;
+  subcategoryId: string;
+  price: { amountMinor: number; currency: 'ILS' };
+  screenInches?: number;
+  details: ProductDetails;
+};
+
 export type DemoProduct = CatalogProduct & {
   images: DemoProductImage[];
   attributes: DemoAttributes;
   details: ProductDetails;
   subcategoryId?: string;
+  options?: StoreOption[];
 };
+
+export function productOptions(product: DemoProduct): StoreOption[] {
+  return product.options ?? [];
+}
+
+export function listedOption(product: DemoProduct, params: URLSearchParams): StoreOption | undefined {
+  const options = productOptions(product);
+  const sub = params.get('sub');
+  if (sub) {
+    const match = options.find((option) => option.subcategoryId === sub);
+    if (match) return match;
+  }
+  const screens = (params.get('screen') ?? '').split(',').filter(Boolean);
+  if (screens.length === 0) return undefined;
+  return options.find((option) => option.screenInches !== undefined && screens.includes(String(option.screenInches)));
+}
+
+export function optionModel(option: StoreOption | undefined): string {
+  if (!option) return '';
+  const rows = [...option.details.features, ...option.details.spec, ...option.details.info];
+  const row = rows.find((item) => item.label.he.replace(/[״"'׳]/g, '') === 'דגם');
+  const value = row?.value.he.trim() ?? '';
+  return value.match(/[A-Za-z]{1,8}\d{2}[A-Za-z0-9-]{4,}/)?.[0] ?? value;
+}
+
+export function optionTitle(name: string, option: StoreOption | undefined): string {
+  if (!option) return name;
+  const size = option.label.match(/(\d{2,3})/)?.[1] ?? (option.screenInches ? String(option.screenInches) : '');
+  const model = optionModel(option);
+  let next = name.trim();
+  if (model && /[A-Za-z]{1,8}\d{2}[A-Za-z0-9-]{4,}/.test(next)) {
+    next = next.replace(/[A-Za-z]{1,8}\d{2}[A-Za-z0-9-]{4,}/, model);
+  }
+  if (size && /\d{2,3}\s*(?:אינץ|بوصة|inch|"|″|״)/i.test(next)) {
+    next = next.replace(/\d{2,3}(?=\s*(?:אינץ|بوصة|inch|"|″|״))/i, size);
+  } else if (size && /\b4K\b/i.test(next)) {
+    next = next.replace(/\b4K\b/i, `${size}" 4K`);
+  } else if (size && !new RegExp(`(?<!\\d)${size}(?!\\d)`).test(next)) {
+    next = `${next} ${size}"`;
+  }
+  return next.replace(/\s{2,}/g, ' ').trim();
+}
+
+export function optionName(name: string, option: StoreOption | undefined): string {
+  const title = optionTitle(name, option);
+  const model = optionModel(option);
+  if (!model || title.includes(model)) return title;
+  return `${title} ${model}`;
+}
+
+export function optionById(product: DemoProduct, variantId = ''): StoreOption | undefined {
+  const options = productOptions(product);
+  return options.find((option) => option.id === variantId) ?? options[0];
+}
+
+export function lineAmount(product: DemoProduct, variantId = ''): number {
+  return optionById(product, variantId)?.price.amountMinor ?? product.price.amountMinor;
+}
 
 const fallbackImage: DemoProductImage = placeholder(
   '/catalog/fallback.webp',

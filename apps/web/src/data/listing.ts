@@ -57,10 +57,9 @@ export type CategoryLanding = {
 export type BrandProfile = {
   slug: string;
   name: string;
+  image?: string;
   kind: 'preview' | 'fixture';
   brandId?: string;
-  summary: LocalizedText;
-  disclaimer: LocalizedText;
   categorySlugs: readonly string[];
 };
 
@@ -219,51 +218,86 @@ const refrigeratorLanding: CategoryLanding = {
   ],
 };
 
+function viewedOptions(product: DemoProduct, selectedSub: string) {
+  const options = product.options ?? [];
+  if (!selectedSub) return options;
+  return options.filter((option) => option.subcategoryId === selectedSub);
+}
+
+function screenSizes(product: DemoProduct, selectedSub: string): string[] {
+  const sizes = new Set<string>();
+  for (const option of viewedOptions(product, selectedSub)) {
+    if (option.screenInches !== undefined) sizes.add(String(option.screenInches));
+  }
+  if (sizes.size === 0 && !selectedSub && product.attributes.screenInches !== undefined) {
+    sizes.add(String(product.attributes.screenInches));
+  }
+  return [...sizes];
+}
+
+function optionText(product: DemoProduct, selectedSub: string): string {
+  const options = viewedOptions(product, selectedSub);
+  const details = options.length > 0 ? options.map((option) => option.details) : [product.details];
+  return details
+    .flatMap((block) => [...block.features, ...block.spec, ...block.info])
+    .flatMap((row) => [row.label.he, row.label.ar, row.value.he, row.value.ar])
+    .join('\n');
+}
+
+function is4k(product: DemoProduct, selectedSub: string): boolean {
+  if (product.attributes.resolution === '4k') return true;
+  return /4k|3840/i.test(optionText(product, selectedSub));
+}
+
+function isSmartTv(product: DemoProduct, selectedSub: string): boolean {
+  if (product.attributes.smartTv === true) return true;
+  if (/חכמ|ذكي/i.test(`${product.name.he} ${product.name.ar}`)) return true;
+  return /טלוויזיה חכמה[\s\S]{0,24}(yes|כן|true|نعم)/i.test(optionText(product, selectedSub));
+}
+
+function televisionFilters(products: readonly DemoProduct[], selectedSub: string): ListingFilter[] {
+  const sizes = [...new Set(products.flatMap((product) => screenSizes(product, selectedSub)))].sort(
+    (left, right) => Number(right) - Number(left),
+  );
+  const filters: ListingFilter[] = [brandFilter(products)];
+  if (sizes.length > 0) {
+    filters.push(
+      multi(
+        'screen',
+        text('גודל מסך', 'مقاس الشاشة'),
+        sizes.map((size) => ({ value: size, label: text(`${size} אינץ׳`, `${size} إنش`) })),
+        (product, selected) => screenSizes(product, selectedSub).some((size) => selected.includes(size)),
+      ),
+    );
+  }
+  if (products.some((product) => is4k(product, selectedSub))) {
+    filters.push(
+      multi(
+        'resolution',
+        text('רזולוציה', 'الدقة'),
+        [{ value: '4k', label: text('4K', '4K') }],
+        (product, selected) => selected.includes('4k') && is4k(product, selectedSub),
+      ),
+    );
+  }
+  if (products.some((product) => isSmartTv(product, selectedSub))) {
+    filters.push(
+      multi(
+        'smart',
+        text('טלוויזיה חכמה', 'تلفزيون ذكي'),
+        [{ value: 'yes', label: text('טלוויזיה חכמה', 'تلفزيون ذكي') }],
+        (product, selected) => selected.includes('yes') && isSmartTv(product, selectedSub),
+      ),
+    );
+  }
+  filters.push(priceFilter);
+  return filters;
+}
+
 const televisionLanding: CategoryLanding = {
   subcategories: [],
-  features: [
-    { id: '65', name: text('65 אינץ׳', '65 إنش'), query: 'screen=65' },
-    { id: '55', name: text('55 אינץ׳', '55 إنش'), query: 'screen=55' },
-    { id: '50', name: text('50 אינץ׳', '50 إنش'), query: 'screen=50' },
-    { id: '4k', name: text('4K', '4K'), query: 'resolution=4k' },
-  ],
-  guide: {
-    title: text('לפני הסינון', 'قبل التصفية'),
-    body: text(
-      'גודל המסך ו־4K מופיעים רק איפה שהם רשומים בכרטיס. טכנולוגיית תצוגה לא סוננה כי היא לא רשומה. סימון „חכמה” קיים רק למוצר שהשם שלו מציין זאת.',
-      'مقاس الشاشة و4K يظهران فقط حيث هما مكتوبان في البطاقة. لم تُصفَّ تقنية العرض لأنها غير مكتوبة. علامة «ذكي» موجودة فقط للمنتج الذي يذكرها اسمه.',
-    ),
-  },
-  filters: (products) => [
-    brandFilter(products),
-    multi(
-      'screen',
-      text('גודל מסך', 'مقاس الشاشة'),
-      [
-        { value: '65', label: text('65 אינץ׳', '65 إنش') },
-        { value: '55', label: text('55 אינץ׳', '55 إنش') },
-        { value: '50', label: text('50 אינץ׳', '50 إنش') },
-      ],
-      attributeEquals((product) =>
-        product.attributes.screenInches === undefined
-          ? undefined
-          : String(product.attributes.screenInches),
-      ),
-    ),
-    multi(
-      'resolution',
-      text('רזולוציה', 'الدقة'),
-      [{ value: '4k', label: text('4K', '4K') }],
-      attributeEquals((product) => product.attributes.resolution),
-    ),
-    multi(
-      'smart',
-      text('טלוויזיה חכמה', 'تلفزيون ذكي'),
-      [{ value: 'yes', label: text('מצוין בשם כמוצר חכם', 'مذكور في الاسم كمنتج ذكي') }],
-      (product, selected) => selected.includes('yes') && product.attributes.smartTv === true,
-    ),
-    priceFilter,
-  ],
+  features: [],
+  filters: (products) => televisionFilters(products, ''),
 };
 
 const washerLanding: CategoryLanding = {
@@ -413,23 +447,29 @@ export function subcategoryHref(brandSlug: string, subcategory: ProductSubcatego
   return `/category/${subcategory.categorySlug}?${params.toString()}`;
 }
 
-export function listingFilters(slug: string, products: readonly DemoProduct[]): ListingFilter[] {
-  const filters = landings[slug]?.filters(products) ?? [brandFilter(products), priceFilter];
-  return filters.filter((filter) => filter.kind === 'price' || filter.options.length > 0);
+function presentOptions(filter: MultiFilter, products: readonly DemoProduct[]): MultiFilter {
+  return {
+    ...filter,
+    options: filter.options.filter((option) => products.some((product) => filter.match(product, [option.value]))),
+  };
+}
+
+export function listingFilters(slug: string, products: readonly DemoProduct[], selectedSub = ''): ListingFilter[] {
+  const filters =
+    slug === 'televisions'
+      ? televisionFilters(products, selectedSub)
+      : (landings[slug]?.filters(products) ?? [brandFilter(products), priceFilter]);
+  return filters.flatMap((filter): ListingFilter[] => {
+    if (filter.kind === 'price') return [filter];
+    const present = presentOptions(filter, products);
+    return present.options.length > 0 ? [present] : [];
+  });
 }
 
 const samsung: BrandProfile = {
   slug: 'samsung',
   name: 'Samsung',
   kind: 'preview',
-  summary: text(
-    'עמוד זה מדגים מבנה של חנות מותג בתוך מחסני ענאן.',
-    'هذه الصفحة تعرض بنية متجر علامة داخل معرض عنان.',
-  ),
-  disclaimer: text(
-    'אין בקטלוג ההדגמה דגמי Samsung. האתר אינו מציג את מחסני ענאן כמשווק רשמי, ואין כאן מחירים, אחריות או מבצעי יצרן.',
-    'لا توجد طرازات Samsung في كتالوج العرض. الموقع لا يقدّم معرض عنان كموزّع رسمي، ولا توجد هنا أسعار أو ضمان أو عروض الشركة المصنّعة.',
-  ),
   categorySlugs: ['refrigerators', 'washing-machines', 'televisions', 'dishwashers'],
 };
 
@@ -447,16 +487,9 @@ export function brandProfile(slug: string): BrandProfile | undefined {
   return {
     slug: brand.slug,
     name: brand.name,
+    image: brand.image || undefined,
     kind: 'fixture',
     brandId: brand.id,
-    summary: text(
-      'המוצרים בעמוד הזה נטענים מהקטלוג שנשמר.',
-      'المنتجات في هذه الصفحة تُحمَّل من الكتالوج المحفوظ.',
-    ),
-    disclaimer: text(
-      'המחירים הם אלה שנשמרו בקטלוג. הזמנת ניסיון נשמרת בלי סליקה.',
-      'الأسعار هي المحفوظة في الكتالوج. طلب التجربة يُحفظ بدون تحصيل.',
-    ),
     categorySlugs,
   };
 }

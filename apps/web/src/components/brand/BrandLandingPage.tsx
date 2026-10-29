@@ -33,7 +33,7 @@ export function BrandLandingPage({
         ]}
       />
       <BrandHero brand={brand} />
-      <BrandSubcategoryRow brandSlug={brand.slug} products={products} />
+      <BrandSubcategoryRow brand={brand} products={products} />
       <section className="mt-8">
         <h2 className="mb-4 text-center text-lg font-bold text-ink">{messages.brandPage.all}</h2>
         <ProductListing products={products} filters={filters} />

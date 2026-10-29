@@ -2,7 +2,7 @@ import { Trash2, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { formatMoney, ils } from '@anan/shared';
-import { brandById, primaryImage, productById } from '@/data/catalog';
+import { brandById, lineAmount, optionById, optionName, primaryImage, productById } from '@/data/catalog';
 import { fill, useI18n } from '@/i18n';
 import { pushToast } from '@/components/ui/ActionToast';
 import { cartCount, useCartStore } from '@/stores/cart-store';
@@ -57,7 +57,7 @@ export function CartDrawer({ open, onClose }: CartDrawerProps) {
   const subtotalMinor = lines.reduce((sum, line) => {
     const product = productById(line.productId);
     if (!product) return sum;
-    return sum + product.price.amountMinor * line.quantity;
+    return sum + lineAmount(product, line.variantId) * line.quantity;
   }, 0);
 
   return (
@@ -107,11 +107,11 @@ export function CartDrawer({ open, onClose }: CartDrawerProps) {
               const product = productById(line.productId);
               if (!product) {
                 return (
-                  <li key={line.productId} className="border-b border-line pb-4">
+                  <li key={`${line.productId}:${line.variantId ?? ''}`} className="border-b border-line pb-4">
                     <p className="text-sm text-muted">{messages.product.missingTitle}</p>
                     <button
                       type="button"
-                      onClick={() => remove(line.productId)}
+                      onClick={() => remove(line.productId, line.variantId)}
                       className="mt-2 text-sm font-semibold text-brand-red"
                     >
                       {messages.cart.remove}
@@ -122,13 +122,14 @@ export function CartDrawer({ open, onClose }: CartDrawerProps) {
 
               const image = primaryImage(product);
               const brand = brandById(product.brandId);
-              const lineMinor = product.price.amountMinor * line.quantity;
+              const option = optionById(product, line.variantId);
+              const lineMinor = lineAmount(product, line.variantId) * line.quantity;
               const compareMinor = product.compareAtPrice
                 ? product.compareAtPrice.amountMinor * line.quantity
                 : null;
 
               return (
-                <li key={line.productId} className="border-b border-line pb-4">
+                <li key={`${line.productId}:${line.variantId ?? ''}`} className="border-b border-line pb-4">
                   <div className="flex items-start gap-3">
                     <Link to={`/product/${product.slug}`} onClick={onClose} className="shrink-0">
                       <img
@@ -144,12 +145,12 @@ export function CartDrawer({ open, onClose }: CartDrawerProps) {
                         onClick={onClose}
                         className="mt-0.5 line-clamp-2 text-sm font-semibold leading-5 text-ink hover:text-brand-blue"
                       >
-                        {product.name[locale]}
+                        {optionName(product.name[locale], option)}
                       </Link>
                     </div>
                     <button
                       type="button"
-                      onClick={() => remove(line.productId)}
+                      onClick={() => remove(line.productId, line.variantId)}
                       aria-label={messages.cart.remove}
                       className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted hover:bg-[#fff4f4] hover:text-brand-red"
                     >
@@ -171,7 +172,7 @@ export function CartDrawer({ open, onClose }: CartDrawerProps) {
                       <button
                         type="button"
                         aria-label={messages.cart.decrease}
-                        onClick={() => setQuantity(line.productId, line.quantity - 1)}
+                        onClick={() => setQuantity(line.productId, line.quantity - 1, line.variantId)}
                         className="h-9 w-9 text-lg"
                       >
                         −
@@ -183,7 +184,7 @@ export function CartDrawer({ open, onClose }: CartDrawerProps) {
                         type="button"
                         aria-label={messages.cart.increase}
                         onClick={() => {
-                          if (setQuantity(line.productId, line.quantity + 1) === 'max') pushToast('cartMax');
+                          if (setQuantity(line.productId, line.quantity + 1, line.variantId) === 'max') pushToast('cartMax');
                         }}
                         className="h-9 w-9 text-lg"
                       >

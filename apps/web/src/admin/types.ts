@@ -42,6 +42,11 @@ export type AdminVariant = {
   id: string;
   color: string;
   colorHex: string;
+  sku: string;
+  priceMinor: number | null;
+  subcategoryId: string;
+  specs: Record<string, string>;
+  specsAr: Record<string, string>;
   stock: number;
   active: boolean;
   images: AdminImage[];

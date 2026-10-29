@@ -101,6 +101,11 @@ function toProduct(product: DemoProduct): AdminProduct {
         id: `${product.id}-variant`,
         color: '',
         colorHex: '#172033',
+        sku: '',
+        priceMinor: null,
+        subcategoryId: '',
+        specs: {},
+        specsAr: {},
         stock: 0,
         active: true,
         images: [...product.images]

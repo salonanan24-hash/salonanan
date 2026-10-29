@@ -20,21 +20,42 @@ import {
 } from '@/admin/ui';
 import { fill, useI18n } from '@/i18n';
 
+type DraftVariant = {
+  id: string;
+  label: string;
+  sku: string;
+  price: string;
+  subcategoryId: string;
+  specs: Record<string, string>;
+  specsAr: Record<string, string>;
+  stock: number;
+  active: boolean;
+  colorHex: string;
+};
+
 type Draft = {
   id: string | null;
   nameHe: string;
   nameAr: string;
-  price: string;
   brandId: string;
   categoryId: string;
-  subcategoryId: string;
-  specs: Record<string, string>;
-  specsAr: Record<string, string>;
-  variants: AdminVariant[];
+  images: { id: string; src: string }[];
+  variants: DraftVariant[];
 };
 
-function blankVariant(): AdminVariant {
-  return { id: nid('var'), color: '', colorHex: '#172033', stock: 0, active: true, images: [] };
+function blankVariant(): DraftVariant {
+  return {
+    id: nid('var'),
+    label: '',
+    sku: '',
+    price: '',
+    subcategoryId: '',
+    specs: {},
+    specsAr: {},
+    stock: 0,
+    active: true,
+    colorHex: '#172033',
+  };
 }
 
 function blankDraft(brandId = '', categoryId = ''): Draft {
@@ -42,13 +63,26 @@ function blankDraft(brandId = '', categoryId = ''): Draft {
     id: null,
     nameHe: '',
     nameAr: '',
-    price: '',
     brandId,
     categoryId,
-    subcategoryId: '',
-    specs: {},
-    specsAr: {},
+    images: [],
     variants: [blankVariant()],
+  };
+}
+
+function variantFromProduct(product: AdminProduct, variant: AdminVariant): DraftVariant {
+  const own = Object.keys(variant.specs).length > 0;
+  return {
+    id: variant.id,
+    label: variant.color,
+    sku: variant.sku,
+    price: major(variant.priceMinor ?? product.priceMinor),
+    subcategoryId: variant.subcategoryId || product.subcategoryId,
+    specs: own ? variant.specs : { ...product.specs },
+    specsAr: own ? variant.specsAr : { ...product.specsAr },
+    stock: variant.stock,
+    active: variant.active,
+    colorHex: variant.colorHex,
   };
 }
 
@@ -73,8 +107,8 @@ export function ProductsPage() {
   const [error, setError] = useState('');
   const [draft, setDraft] = useState<Draft>(() => blankDraft());
   const [agentModel, setAgentModel] = useState('');
-  const [agentUrl, setAgentUrl] = useState('');
-  const [agentFile, setAgentFile] = useState<File | null>(null);
+  const [agentNotes, setAgentNotes] = useState('');
+  const [agentFiles, setAgentFiles] = useState<File[]>([]);
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentNote, setAgentNote] = useState('');
 
@@ -97,7 +131,7 @@ export function ProductsPage() {
         subcategory?.name.ar,
         ...Object.values(product.specs),
         ...Object.values(product.specsAr),
-        ...product.variants.map((variant) => variant.color),
+        ...product.variants.flatMap((variant) => [variant.color, variant.sku, ...Object.values(variant.specs)]),
       ]
         .join(' ')
         .toLowerCase();
@@ -111,13 +145,10 @@ export function ProductsPage() {
       id: product.id,
       nameHe: product.name.he,
       nameAr: product.name.ar,
-      price: major(product.priceMinor),
       brandId: product.brandId,
       categoryId: product.categoryId,
-      subcategoryId: product.subcategoryId,
-      specs: product.specs,
-      specsAr: product.specsAr,
-      variants: product.variants.length > 0 ? product.variants : [blankVariant()],
+      images: product.variants.flatMap((variant) => variant.images).filter((image, index, list) => list.findIndex((item) => item.src === image.src) === index),
+      variants: product.variants.length > 0 ? product.variants.map((variant) => variantFromProduct(product, variant)) : [blankVariant()],
     });
   }
 
@@ -126,32 +157,26 @@ export function ProductsPage() {
     setDraft((current) => ({
       ...current,
       categoryId,
-      subcategoryId: next?.subcategories.some((item) => item.id === current.subcategoryId)
-        ? current.subcategoryId
-        : '',
+      variants: current.variants.map((variant) => ({
+        ...variant,
+        subcategoryId: next?.subcategories.some((item) => item.id === variant.subcategoryId) ? variant.subcategoryId : '',
+      })),
     }));
   }
 
-  function updateVariant(id: string, patch: Partial<AdminVariant>) {
+  function updateVariant(id: string, patch: Partial<DraftVariant>) {
     setDraft((current) => ({
       ...current,
       variants: current.variants.map((variant) => (variant.id === id ? { ...variant, ...patch } : variant)),
     }));
   }
 
-  async function addImages(id: string, list: FileList | null) {
+  async function addImages(list: FileList | null) {
     if (!list?.length) return;
     const sources = await readResizedImages(list);
     setDraft((current) => ({
       ...current,
-      variants: current.variants.map((variant) =>
-        variant.id === id
-          ? {
-              ...variant,
-              images: [...variant.images, ...sources.map((src) => ({ id: nid('img'), src }))],
-            }
-          : variant,
-      ),
+      images: [...current.images, ...sources.map((src) => ({ id: nid('img'), src }))],
     }));
   }
 
@@ -163,31 +188,36 @@ export function ProductsPage() {
     setAgentBusy(true);
     setAgentNote(copy.agentWorking);
     try {
-      const result = await fillProductFromLink({ model: agentModel.trim(), url: agentUrl.trim() });
-      const sources = agentFile ? await readResizedImages([agentFile]) : [];
+      const sources = agentFiles.length > 0 ? await readResizedImages(agentFiles) : [];
+      const result = await fillProductFromLink({ model: agentModel.trim(), notes: agentNotes.trim(), images: sources });
       await refresh();
       setDraft((current) => {
-        const variants = current.variants.length > 0 ? current.variants : [blankVariant()];
-        const first = variants[0] ?? blankVariant();
+        const filled = result.draft.variants.length > 0 ? result.draft.variants : [
+          {
+            label: result.draft.color,
+            sku: '',
+            price: result.draft.price,
+            subcategoryId: result.draft.subcategoryId,
+            specs: result.draft.specs,
+            specsAr: result.draft.specsAr,
+          },
+        ];
         return {
           ...current,
           nameHe: result.draft.nameHe,
           nameAr: result.draft.nameAr,
           brandId: result.draft.brandId,
           categoryId: result.draft.categoryId,
-          subcategoryId: result.draft.subcategoryId,
-          specs: result.draft.specs,
-          specsAr: result.draft.specsAr,
-          variants: [
-            {
-              ...first,
-              images: [
-                ...sources.map((src) => ({ id: nid('img'), src })),
-                ...first.images,
-              ],
-            },
-            ...variants.slice(1),
-          ],
+          images: sources.length > 0 ? sources.map((src) => ({ id: nid('img'), src })) : current.images,
+          variants: filled.map((variant) => ({
+            ...blankVariant(),
+            label: variant.label,
+            sku: variant.sku,
+            price: variant.price,
+            subcategoryId: variant.subcategoryId,
+            specs: variant.specs,
+            specsAr: variant.specsAr,
+          })),
         };
       });
       const added = [result.created.brand, result.created.category, result.created.subcategory, ...result.created.fields].filter(
@@ -204,31 +234,47 @@ export function ProductsPage() {
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const shekels = Number(draft.price);
-    if (!draft.nameHe.trim() || !Number.isFinite(shekels) || shekels < 0 || !draft.brandId || !draft.categoryId) {
+    const allowed = new Set(category?.fields.map((item) => item.id) ?? []);
+    const variants = draft.variants.map((variant) => {
+      const specs = Object.fromEntries(Object.entries(variant.specs).filter(([key, value]) => allowed.has(key) && value.trim() !== ''));
+      const specsAr = Object.fromEntries(
+        Object.entries(variant.specsAr).filter(([key, value]) => allowed.has(key) && specs[key] && value.trim() !== ''),
+      );
+      const shekels = Number(variant.price);
+      return { ...variant, specs, specsAr, shekels };
+    });
+    if (
+      !draft.nameHe.trim() ||
+      variants.length === 0 ||
+      variants.some((variant) => !variant.price.trim() || !Number.isFinite(variant.shekels) || variant.shekels < 0) ||
+      !draft.brandId ||
+      !draft.categoryId
+    ) {
       setError(copy.required);
       return;
     }
-    const allowed = new Set(category?.fields.map((item) => item.id) ?? []);
-    const specs = Object.fromEntries(
-      Object.entries(draft.specs).filter(([key, value]) => allowed.has(key) && value.trim() !== ''),
-    );
-    const specsAr = Object.fromEntries(
-      Object.entries(draft.specsAr).filter(([key, value]) => allowed.has(key) && specs[key] && value.trim() !== ''),
-    );
+    const first = variants[0];
     const product: AdminProduct = {
       id: draft.id ?? nid('product'),
       name: { he: draft.nameHe.trim(), ar: draft.nameAr.trim() || draft.nameHe.trim() },
-      priceMinor: Math.round(shekels * 100),
+      priceMinor: Math.min(...variants.map((variant) => Math.round(variant.shekels * 100))),
       brandId: draft.brandId,
       categoryId: draft.categoryId,
-      subcategoryId: draft.subcategoryId,
-      specs,
-      specsAr,
-      variants: draft.variants.map((variant) => ({
-        ...variant,
-        color: variant.color.trim(),
+      subcategoryId: first?.subcategoryId ?? '',
+      specs: first?.specs ?? {},
+      specsAr: first?.specsAr ?? {},
+      variants: variants.map((variant, index) => ({
+        id: variant.id,
+        color: variant.label.trim(),
+        colorHex: variant.colorHex,
+        sku: variant.sku.trim(),
+        priceMinor: Math.round(variant.shekels * 100),
+        subcategoryId: variant.subcategoryId,
+        specs: variant.specs,
+        specsAr: variant.specsAr,
         stock: Math.max(0, Math.round(Number(variant.stock) || 0)),
+        active: variant.active,
+        images: index === 0 ? draft.images : [],
       })),
     };
     saveProduct(product)
@@ -316,18 +362,19 @@ export function ProductsPage() {
                 <Field label={copy.agentModel}>
                   <TextInput value={agentModel} onChange={(event) => setAgentModel(event.target.value)} />
                 </Field>
-                <Field label={copy.agentUrl} hint={copy.optional}>
-                  <TextInput value={agentUrl} inputMode="url" onChange={(event) => setAgentUrl(event.target.value)} />
+                <Field label={copy.agentNotes}>
+                  <TextArea value={agentNotes} onChange={(event) => setAgentNotes(event.target.value)} />
                 </Field>
                 <Field label={copy.agentImage} hint={copy.optional}>
                   <label className="inline-flex h-10 cursor-pointer items-center rounded-xl border border-dashed border-line px-3 text-xs font-semibold text-muted">
-                    {agentFile ? agentFile.name : copy.agentImage}
+                    {agentFiles.length > 0 ? agentFiles.map((file) => file.name).join(', ') : copy.agentImage}
                     <input
                       type="file"
                       accept="image/*"
+                      multiple
                       className="sr-only"
                       onChange={(event) => {
-                        setAgentFile(event.target.files?.[0] ?? null);
+                        setAgentFiles([...(event.target.files ?? [])].slice(0, 4));
                         event.target.value = '';
                       }}
                     />
@@ -343,14 +390,6 @@ export function ProductsPage() {
               </Field>
               <Field label={copy.nameAr} hint={copy.optional}>
                 <TextInput value={draft.nameAr} onChange={(event) => setDraft({ ...draft, nameAr: event.target.value })} />
-              </Field>
-              <Field label={copy.price} hint={copy.priceHint}>
-                <TextInput
-                  inputMode="decimal"
-                  value={draft.price}
-                  onChange={(event) => setDraft({ ...draft, price: event.target.value })}
-                  required
-                />
               </Field>
               <Field label={copy.brand}>
                 <SelectInput value={draft.brandId} onChange={(event) => setDraft({ ...draft, brandId: event.target.value })} required>
@@ -372,47 +411,43 @@ export function ProductsPage() {
                   ))}
                 </SelectInput>
               </Field>
-              {category && category.subcategories.length > 0 ? (
-                <Field label={copy.subcategory} hint={copy.optional}>
-                  <SelectInput
-                    value={draft.subcategoryId}
-                    onChange={(event) => setDraft({ ...draft, subcategoryId: event.target.value })}
-                  >
-                    <option value="">{copy.none}</option>
-                    {category.subcategories.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name[locale]}
-                      </option>
-                    ))}
-                  </SelectInput>
-                </Field>
-              ) : null}
-              {category ? (
-                <div className="space-y-4 rounded-2xl bg-[#f6f8fb] p-3">
-                  <p className="text-sm font-bold text-ink">{copy.specs}</p>
-                  <p className="text-xs leading-5 text-muted">{copy.optional}</p>
-                  {category.fields.length === 0 ? <p className="text-sm text-muted">{copy.noSpecs}</p> : null}
-                  {(['spec', 'features', 'info'] as const).map((section) => (
-                    <ProductFields
-                      key={section}
-                      section={section}
-                      fields={category.fields.filter((item) => (item.section ?? 'features') === section)}
-                      specs={draft.specs}
-                      specsAr={draft.specsAr}
-                      onChange={(id, value) => setDraft({ ...draft, specs: { ...draft.specs, [id]: value } })}
-                      onChangeAr={(id, value) => setDraft({ ...draft, specsAr: { ...draft.specsAr, [id]: value } })}
-                    />
+              <div>
+                <p className="mb-2 text-sm font-semibold">{copy.images}</p>
+                <div className="flex flex-wrap gap-2">
+                  {draft.images.map((image) => (
+                    <button
+                      key={image.id}
+                      type="button"
+                      className="relative"
+                      onClick={() => setDraft({ ...draft, images: draft.images.filter((item) => item.id !== image.id) })}
+                      aria-label={copy.removeImage}
+                    >
+                      <img src={image.src} alt="" className="size-16 rounded-xl bg-[#f3f5f8] object-contain" />
+                    </button>
                   ))}
                 </div>
-              ) : null}
+                <label className="mt-2 inline-flex h-10 cursor-pointer items-center rounded-xl border border-dashed border-line px-3 text-xs font-semibold text-muted">
+                  {copy.addImages}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="sr-only"
+                    onChange={(event) => {
+                      void addImages(event.target.files);
+                      event.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
               <VariantEditor
+                category={category}
                 variants={draft.variants}
                 onChange={updateVariant}
                 onAdd={() => setDraft({ ...draft, variants: [...draft.variants, blankVariant()] })}
                 onRemove={(id) =>
                   setDraft({ ...draft, variants: draft.variants.filter((variant) => variant.id !== id) })
                 }
-                onImages={(id, list) => void addImages(id, list)}
               />
               {error ? <p className="text-sm font-semibold anan-accent-text">{error}</p> : null}
               <div className="flex gap-2">
@@ -439,24 +474,27 @@ export function ProductsPage() {
 }
 
 function VariantEditor({
+  category,
   variants,
   onChange,
   onAdd,
   onRemove,
-  onImages,
 }: {
-  variants: AdminVariant[];
-  onChange: (id: string, patch: Partial<AdminVariant>) => void;
+  category: { subcategories: { id: string; name: { he: string; ar: string } }[]; fields: AdminField[] } | undefined;
+  variants: DraftVariant[];
+  onChange: (id: string, patch: Partial<DraftVariant>) => void;
   onAdd: () => void;
   onRemove: (id: string) => void;
-  onImages: (id: string, list: FileList | null) => void;
 }) {
-  const { messages } = useI18n();
+  const { locale, messages } = useI18n();
   const copy = messages.desk.products;
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-extrabold">{copy.variants}</h3>
+        <div>
+          <h3 className="text-sm font-extrabold">{copy.variants}</h3>
+          <p className="mt-1 text-xs leading-5 text-muted">{copy.variantHint}</p>
+        </div>
         <PrimaryButton type="button" className="h-9 px-3 text-xs" onClick={onAdd}>
           {copy.addVariant}
         </PrimaryButton>
@@ -484,20 +522,19 @@ function VariantEditor({
             </div>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label={copy.color} hint={copy.optional}>
-              <TextInput value={variant.color} onChange={(event) => onChange(variant.id, { color: event.target.value })} />
+            <Field label={copy.color}>
+              <TextInput value={variant.label} onChange={(event) => onChange(variant.id, { label: event.target.value })} />
             </Field>
-            <Field label={copy.colorHex}>
-              <span className="flex items-center gap-2">
-                <input
-                  type="color"
-                  value={variant.colorHex}
-                  aria-label={copy.colorHex}
-                  onChange={(event) => onChange(variant.id, { colorHex: event.target.value })}
-                  className="size-11 shrink-0 rounded-xl border border-line bg-white p-1"
-                />
-                <TextInput value={variant.colorHex} onChange={(event) => onChange(variant.id, { colorHex: event.target.value })} />
-              </span>
+            <Field label={copy.sku} hint={copy.optional}>
+              <TextInput value={variant.sku} onChange={(event) => onChange(variant.id, { sku: event.target.value })} />
+            </Field>
+            <Field label={copy.price} hint={copy.priceHint}>
+              <TextInput
+                inputMode="decimal"
+                value={variant.price}
+                onChange={(event) => onChange(variant.id, { price: event.target.value })}
+                required
+              />
             </Field>
             <Field label={copy.stock}>
               <TextInput
@@ -507,37 +544,43 @@ function VariantEditor({
               />
             </Field>
           </div>
-          <div className="mt-3">
-            <p className="mb-2 text-sm font-semibold">{copy.images}</p>
-            <div className="flex flex-wrap gap-2">
-              {variant.images.map((image) => (
-                <button
-                  key={image.id}
-                  type="button"
-                  className="relative"
-                  onClick={() =>
-                    onChange(variant.id, { images: variant.images.filter((item) => item.id !== image.id) })
-                  }
-                  aria-label={copy.removeImage}
+          {category && category.subcategories.length > 0 ? (
+            <div className="mt-3">
+              <Field label={copy.subcategory} hint={copy.optional}>
+                <SelectInput
+                  value={variant.subcategoryId}
+                  onChange={(event) => onChange(variant.id, { subcategoryId: event.target.value })}
                 >
-                  <img src={image.src} alt="" className="size-16 rounded-xl bg-[#f3f5f8] object-contain" />
-                </button>
-              ))}
+                  <option value="">{copy.none}</option>
+                  {category.subcategories.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name[locale]}
+                    </option>
+                  ))}
+                </SelectInput>
+              </Field>
             </div>
-            <label className="mt-2 inline-flex h-10 cursor-pointer items-center rounded-xl border border-dashed border-line px-3 text-xs font-semibold text-muted">
-              {copy.addImages}
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                className="sr-only"
-                onChange={(event) => {
-                  onImages(variant.id, event.target.files);
-                  event.target.value = '';
-                }}
-              />
-            </label>
-          </div>
+          ) : null}
+          {category && category.fields.length > 0 ? (
+            <div className="mt-3 space-y-4 rounded-2xl bg-[#f6f8fb] p-3">
+              {(['spec', 'features', 'info'] as const).map((section) => {
+                const sectionFields = category.fields.filter((item) => (item.section ?? 'features') === section);
+                const filled = sectionFields.filter((item) => (variant.specs[item.id] ?? '').trim());
+                const hasValues = Object.values(variant.specs).some((value) => value.trim());
+                return (
+                  <ProductFields
+                    key={section}
+                    section={section}
+                    fields={hasValues ? filled : sectionFields}
+                    specs={variant.specs}
+                    specsAr={variant.specsAr}
+                    onChange={(id, value) => onChange(variant.id, { specs: { ...variant.specs, [id]: value } })}
+                    onChangeAr={(id, value) => onChange(variant.id, { specsAr: { ...variant.specsAr, [id]: value } })}
+                  />
+                );
+              })}
+            </div>
+          ) : null}
         </div>
       ))}
     </div>

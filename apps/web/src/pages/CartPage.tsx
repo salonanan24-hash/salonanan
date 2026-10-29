@@ -2,7 +2,7 @@ import { formatMoney, ils } from '@anan/shared';
 import { Pencil, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { brandById, categoryBySlug, primaryImage, productById, productsInCategory } from '@/data/catalog';
+import { brandById, categoryBySlug, lineAmount, optionById, optionName, primaryImage, productById, productsInCategory } from '@/data/catalog';
 import { useDevelopmentCatalog } from '@/hooks/use-catalog';
 import { usePageTitle } from '@/hooks/use-page-title';
 import { quoteOrder } from '@/orders/api';
@@ -34,7 +34,7 @@ export function CartPage() {
     }
     let active = true;
     void quoteOrder({
-      lines: lines.map((line) => ({ productId: line.productId, quantity: line.quantity })),
+      lines: lines.map((line) => ({ productId: line.productId, variantId: line.variantId ?? '', quantity: line.quantity })),
       couponCode,
     })
       .then((quote) => {
@@ -54,7 +54,7 @@ export function CartPage() {
     const product = productById(line.productId);
     return product ? [{ line, product }] : [];
   });
-  const subtotalMinor = priced.reduce((sum, item) => sum + item.product.price.amountMinor * item.line.quantity, 0);
+  const subtotalMinor = priced.reduce((sum, item) => sum + lineAmount(item.product, item.line.variantId) * item.line.quantity, 0);
   const totalMinor = Math.max(0, subtotalMinor - (couponCode ? discountMinor : 0));
   const categorySlug = priced[0]?.product.categorySlug;
   const sameCategory = Boolean(categorySlug) && priced.every((item) => item.product.categorySlug === categorySlug);
@@ -75,7 +75,7 @@ export function CartPage() {
     setCouponNote('');
     try {
       const quote = await quoteOrder({
-        lines: lines.map((line) => ({ productId: line.productId, quantity: line.quantity })),
+        lines: lines.map((line) => ({ productId: line.productId, variantId: line.variantId ?? '', quantity: line.quantity })),
         couponCode: code,
       });
       setCouponCode(quote.couponCode);
@@ -106,18 +106,20 @@ export function CartPage() {
             {priced.map(({ line, product }) => {
               const image = primaryImage(product);
               const brand = brandById(product.brandId);
+              const option = optionById(product, line.variantId);
+              const amount = lineAmount(product, line.variantId);
               return (
-                <li key={line.productId} className="flex items-center gap-4 py-5">
+                <li key={`${line.productId}:${line.variantId ?? ''}`} className="flex items-center gap-4 py-5">
                   <Link to={`/product/${product.slug}`} className="shrink-0">
                     <img src={image.src} alt={image.alt[locale]} className="h-24 w-28 object-contain" />
                   </Link>
                   <div className="min-w-0 flex-1">
                     {brand ? <p className="text-xs font-bold text-brand-blue">{brand.name}</p> : null}
                     <Link to={`/product/${product.slug}`} className="mt-1 block font-bold leading-6 text-ink hover:text-brand-blue">
-                      {product.name[locale]}
+                      {optionName(product.name[locale], option)}
                     </Link>
                     <p className="mt-2 text-lg font-extrabold tabular-nums text-ink">
-                      {formatMoney(ils(product.price.amountMinor * line.quantity), locale)}
+                      {formatMoney(ils(amount * line.quantity), locale)}
                     </p>
                   </div>
                   <div className="flex items-center gap-3">
@@ -125,7 +127,7 @@ export function CartPage() {
                       <button
                         type="button"
                         aria-label={messages.cart.decrease}
-                        onClick={() => setQuantity(line.productId, line.quantity - 1)}
+                        onClick={() => setQuantity(line.productId, line.quantity - 1, line.variantId)}
                         className="h-9 w-9"
                       >
                         −
@@ -135,7 +137,7 @@ export function CartPage() {
                         type="button"
                         aria-label={messages.cart.increase}
                         onClick={() => {
-                          if (setQuantity(line.productId, line.quantity + 1) === 'max') pushToast('cartMax');
+                          if (setQuantity(line.productId, line.quantity + 1, line.variantId) === 'max') pushToast('cartMax');
                         }}
                         className="h-9 w-9"
                       >
@@ -152,7 +154,7 @@ export function CartPage() {
                     <button
                       type="button"
                       aria-label={messages.cart.remove}
-                      onClick={() => remove(line.productId)}
+                      onClick={() => remove(line.productId, line.variantId)}
                       className="inline-flex size-9 items-center justify-center text-muted hover:text-brand-red"
                     >
                       <Trash2 className="size-4" />

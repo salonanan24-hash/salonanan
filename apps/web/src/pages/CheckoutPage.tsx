@@ -5,7 +5,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/auth/auth-context';
 import { Breadcrumbs } from '@/components/nav/Breadcrumbs';
 import { Container } from '@/components/ui/Container';
-import { productById } from '@/data/catalog';
+import { lineAmount, optionById, optionName, productById } from '@/data/catalog';
 import { usePageTitle } from '@/hooks/use-page-title';
 import { fill, useI18n } from '@/i18n';
 import { placeOrder, quoteOrder, shippingZones, type ApiOrder, type ShippingZone } from '@/orders/api';
@@ -77,7 +77,7 @@ export function CheckoutPage() {
     }
     let active = true;
     quoteOrder({
-      lines: lines.map((line) => ({ productId: line.productId, quantity: line.quantity })),
+      lines: lines.map((line) => ({ productId: line.productId, variantId: line.variantId ?? '', quantity: line.quantity })),
       couponCode,
     })
       .then((quote) => {
@@ -95,7 +95,7 @@ export function CheckoutPage() {
     const product = productById(line.productId);
     return product ? [{ line, product }] : [];
   });
-  const subtotalMinor = priced.reduce((sum, item) => sum + item.product.price.amountMinor * item.line.quantity, 0);
+  const subtotalMinor = priced.reduce((sum, item) => sum + lineAmount(item.product, item.line.variantId) * item.line.quantity, 0);
   const zone = zones.find((item) => item.id === zoneId);
   const deliveryMinor = method === 'home' ? (zone?.priceMinor ?? 0) : 0;
   const totalMinor = Math.max(0, subtotalMinor - discountMinor + deliveryMinor);
@@ -121,7 +121,7 @@ export function CheckoutPage() {
     setError('');
     try {
       const result = await placeOrder({
-        lines: priced.map((item) => ({ productId: item.product.id, quantity: item.line.quantity })),
+        lines: priced.map((item) => ({ productId: item.product.id, variantId: item.line.variantId ?? '', quantity: item.line.quantity })),
         couponCode,
         note: addressNote.trim(),
         locale,
@@ -327,10 +327,12 @@ export function CheckoutPage() {
             <h2 className="text-center text-lg font-extrabold text-ink">{messages.cart.summary}</h2>
             <ul className="mt-5 space-y-3 border-b border-line pb-4">
               {priced.map(({ line, product }) => (
-                <li key={product.id} className="flex items-start justify-between gap-3 text-sm">
-                  <span className="shrink-0 font-bold tabular-nums">{formatMoney(ils(product.price.amountMinor * line.quantity), locale)}</span>
+                <li key={`${product.id}:${line.variantId ?? ''}`} className="flex items-start justify-between gap-3 text-sm">
+                  <span className="shrink-0 font-bold tabular-nums">
+                    {formatMoney(ils(lineAmount(product, line.variantId) * line.quantity), locale)}
+                  </span>
                   <span className="text-end">
-                    {product.name[locale]} × {line.quantity}
+                    {optionName(product.name[locale], optionById(product, line.variantId))} × {line.quantity}
                   </span>
                 </li>
               ))}

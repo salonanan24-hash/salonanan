@@ -50,7 +50,7 @@ export function App() {
         <Route path="packages" element={<PackagesPage />} />
         <Route path="category/:slug" element={<CategoryPage />} />
         <Route path="brands/:slug" element={<BrandPage />} />
-        <Route path="product/:slug" element={<ProductPage />} />
+        <Route path="product/:slug/:sku?" element={<ProductPage />} />
         <Route path="cart" element={<CartPage />} />
         <Route path="checkout" element={<CheckoutPage />} />
         <Route path="terms" element={<TermsPage />} />

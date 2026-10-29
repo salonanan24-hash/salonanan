@@ -5,6 +5,7 @@ import { getSupabaseAdmin, isSupabaseConfigured } from '../lib/supabase.js';
 
 const lineSchema = z.object({
   productId: z.string().trim().min(1).max(80),
+  variantId: z.string().trim().max(80).default(''),
   quantity: z.number().int().min(1).max(10),
 });
 
@@ -88,7 +89,7 @@ async function pricedLines(lines: z.infer<typeof lineSchema>[]): Promise<PricedL
   if (products.error) throw new AppError(500, 'database', 'Database write failed');
   const variants = await db()
     .from('product_variants')
-    .select('id, product_id, stock, is_active, sort_order')
+    .select('id, product_id, color, sku, price_minor, stock, is_active, sort_order')
     .in('product_id', ids)
     .order('sort_order');
   if (variants.error) throw new AppError(500, 'database', 'Database write failed');
@@ -98,6 +99,11 @@ async function pricedLines(lines: z.infer<typeof lineSchema>[]): Promise<PricedL
       ? { data: [], error: null }
       : await db().from('variant_images').select('variant_id, src, sort_order').in('variant_id', variantIds).order('sort_order');
   if (images.error) throw new AppError(500, 'database', 'Database write failed');
+  const specRows =
+    variantIds.length === 0
+      ? { data: [], error: null }
+      : await db().from('variant_specs').select('variant_id, value').in('variant_id', variantIds);
+  if (specRows.error) throw new AppError(500, 'database', 'Database write failed');
 
   return lines.map((line) => {
     const product = (products.data ?? []).find((item) => item.id === line.productId);
@@ -105,19 +111,36 @@ async function pricedLines(lines: z.infer<typeof lineSchema>[]): Promise<PricedL
     const choices = (variants.data ?? [])
       .filter((variant) => variant.product_id === product.id && variant.is_active)
       .sort((a, b) => a.sort_order - b.sort_order);
-    const variant = choices.find((item) => item.stock >= line.quantity) ?? choices[0];
+    const requested = line.variantId ? choices.find((item) => item.id === line.variantId) : undefined;
+    const variant = requested ?? choices.find((item) => item.stock >= line.quantity) ?? choices[0];
     if (!variant || variant.stock < line.quantity) {
       throw new AppError(409, 'stock', 'Not enough stock');
     }
-    const image = (images.data ?? []).find((item) => item.variant_id === variant.id)?.src ?? '';
+    const image =
+      (images.data ?? []).find((item) => item.variant_id === variant.id)?.src ??
+      (images.data ?? []).find((item) => choices.some((choice) => choice.id === item.variant_id))?.src ??
+      '';
+    const unitPriceMinor = variant.price_minor ?? product.price_minor;
+    const size = variant.color.trim();
+    const model =
+      (specRows.data ?? [])
+        .find((row) => row.variant_id === variant.id && /[A-Za-z]{1,8}\d{2}[A-Za-z0-9-]{4,}/.test(row.value ?? ''))
+        ?.value.match(/[A-Za-z]{1,8}\d{2}[A-Za-z0-9-]{4,}/)?.[0] ?? '';
+    const withSize = (name: string) => {
+      const sized = size && !name.includes(size) ? `${name} ${size}` : name;
+      return model && !sized.includes(model) ? `${sized} ${model}` : sized;
+    };
     return {
       productId: product.id,
       variantId: variant.id,
-      name: { he: product.name_he, ar: product.name_ar },
+      name: {
+        he: withSize(product.name_he),
+        ar: withSize(product.name_ar),
+      },
       image,
-      unitPriceMinor: product.price_minor,
+      unitPriceMinor,
       quantity: line.quantity,
-      lineTotalMinor: product.price_minor * line.quantity,
+      lineTotalMinor: unitPriceMinor * line.quantity,
       stock: variant.stock,
     };
   });

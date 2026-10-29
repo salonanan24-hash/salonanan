@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Heart, Scale, ShoppingCart } from 'lucide-react';
-import { Link } from 'react-router-dom';
-import { brandById, primaryImage, type DemoProduct } from '@/data/catalog';
+import { Link, useSearchParams } from 'react-router-dom';
+import { brandById, listedOption, optionTitle, primaryImage, productOptions, type DemoProduct } from '@/data/catalog';
+import { useDevelopmentCatalog } from '@/hooks/use-catalog';
 import { useI18n } from '@/i18n';
 import { pushToast } from '@/components/ui/ActionToast';
 import { useCartStore } from '@/stores/cart-store';
@@ -16,6 +17,8 @@ type ProductCardProps = {
 
 export function ProductCard({ product }: ProductCardProps) {
   const { locale, messages } = useI18n();
+  const [params] = useSearchParams();
+  const { data } = useDevelopmentCatalog();
   const add = useCartStore((state) => state.add);
   const inCart = useCartStore((state) => state.lines.some((line) => line.productId === product.id));
   const favorite = useFavoritesStore((state) => state.ids.includes(product.id));
@@ -27,7 +30,13 @@ export function ProductCard({ product }: ProductCardProps) {
   const [cartHot, setCartHot] = useState(false);
   const brand = brandById(product.brandId);
   const image = primaryImage(product);
-  const name = product.name[locale];
+  const focus = listedOption(product, params);
+  const category = data.categories.find((item) => item.slug === product.categorySlug);
+  const subcategory = category?.subcategories?.find((item) => item.id === focus?.subcategoryId);
+  const name = focus ? optionTitle(product.name[locale], focus) : product.name[locale];
+  const detail = subcategory?.name[locale] || product.highlight[locale];
+  const price = focus?.price ?? product.price;
+  const href = focus?.sku ? `/product/${product.slug}/${encodeURIComponent(focus.sku)}` : `/product/${product.slug}`;
   const quiet = imageHot || cartHot;
   const copy = (resting: string) =>
     `transition-colors duration-200 ${resting}${quiet ? '' : ' group-hover/card:text-brand-red'}`;
@@ -40,7 +49,7 @@ export function ProductCard({ product }: ProductCardProps) {
         onMouseEnter={() => setImageHot(true)}
         onMouseLeave={() => setImageHot(false)}
       >
-        <Link to={`/product/${product.slug}`} className="absolute inset-0 z-0">
+        <Link to={href} className="absolute inset-0 z-0">
           <span className="sr-only">{name}</span>
         </Link>
         <div className="pointer-events-none flex h-[172px] items-center justify-center overflow-hidden bg-white p-3 md:h-[188px]">
@@ -53,7 +62,7 @@ export function ProductCard({ product }: ProductCardProps) {
         </div>
       </div>
       <div className="relative flex flex-1 flex-col gap-1.5 px-3 pt-2.5 pb-3">
-        <Link to={`/product/${product.slug}`} tabIndex={-1} aria-hidden="true" className="absolute inset-0 z-0" />
+        <Link to={href} tabIndex={-1} aria-hidden="true" className="absolute inset-0 z-0" />
         <div className="pointer-events-none relative z-10 flex flex-1 flex-col gap-1">
         <div className="flex items-center justify-between gap-2">
           {brand?.image ? (
@@ -93,10 +102,10 @@ export function ProductCard({ product }: ProductCardProps) {
           </div>
         </div>
         <h3 className={`line-clamp-3 text-[13px] font-semibold leading-5 ${copy('text-ink')}`}>{name}</h3>
-        <p className={`line-clamp-1 text-[11px] leading-4 ${copy('text-muted')}`}>{product.highlight[locale]}</p>
+        <p className={`line-clamp-1 text-[11px] leading-4 ${copy('text-muted')}`}>{detail}</p>
         <div className="mt-auto flex items-end justify-between gap-2 pt-2">
           <PriceDisplay
-            price={product.price}
+            price={price}
             compareAt={product.compareAtPrice}
             reserveCompare
             compact
@@ -106,7 +115,10 @@ export function ProductCard({ product }: ProductCardProps) {
             type="button"
             onMouseEnter={() => setCartHot(true)}
             onMouseLeave={() => setCartHot(false)}
-            onClick={() => pushToast(add(product.id) === 'max' ? 'cartMax' : 'cartAdded')}
+            onClick={() => {
+              const cheapest = [...productOptions(product)].sort((left, right) => left.price.amountMinor - right.price.amountMinor)[0];
+              pushToast(add(product.id, focus?.id ?? cheapest?.id ?? '') === 'max' ? 'cartMax' : 'cartAdded');
+            }}
             className="pointer-events-auto inline-flex h-7 shrink-0 items-center gap-1 rounded-full border border-brand-blue bg-white px-2.5 text-xs font-bold text-brand-blue transition duration-200 hover:border-brand-blue hover:bg-brand-blue hover:text-white sm:h-8 sm:gap-1.5 sm:px-3 sm:text-[13px]"
           >
             <span>{inCart ? messages.product.inCart : messages.product.addShort}</span>

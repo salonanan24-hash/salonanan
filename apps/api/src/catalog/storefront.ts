@@ -99,7 +99,8 @@ function imagesFrom(product: CatalogPayload['products'][number]): StoreImage[] {
 }
 
 function detailsFrom(
-  product: CatalogPayload['products'][number],
+  specs: Record<string, string>,
+  specsAr: Record<string, string>,
   category: CatalogPayload['categories'][number],
 ) {
   const details = {
@@ -108,13 +109,27 @@ function detailsFrom(
     info: [] as { label: { he: string; ar: string }; value: { he: string; ar: string } }[],
   };
   for (const field of category.fields) {
-    const he = product.specs[field.id]?.trim() ?? '';
-    const ar = product.specsAr[field.id]?.trim() || he;
+    const he = specs[field.id]?.trim() ?? '';
+    const ar = specsAr[field.id]?.trim() || he;
     if (!he && !ar) continue;
     const section = field.section === 'spec' || field.section === 'info' ? field.section : 'features';
     details[section].push({ label: field.label, value: { he: he || ar, ar } });
   }
   return details;
+}
+
+function optionSpecs(variant: CatalogPayload['products'][number]['variants'][number], product: CatalogPayload['products'][number]) {
+  return Object.keys(variant.specs).length > 0
+    ? { specs: variant.specs, specsAr: variant.specsAr }
+    : { specs: product.specs, specsAr: product.specsAr };
+}
+
+function screenInches(specs: Record<string, string>, label: string): number | undefined {
+  const recorded = numberSpec(specs, 'screenInches');
+  if (recorded !== undefined) return recorded;
+  const match = label.match(/(\d{2,3})/);
+  const value = match ? Number(match[1]) : NaN;
+  return value >= 32 && value <= 120 ? value : undefined;
 }
 
 function productSlug(id: string): string {
@@ -147,23 +162,42 @@ export function toStorefront(catalog: CatalogPayload) {
     products: catalog.products.flatMap((product) => {
       const category = categories.get(product.categoryId);
       if (!category) return [];
-      const subcategory = category.subcategories.find((item) => item.id === product.subcategoryId);
+      const options = product.variants
+        .filter((variant) => variant.active)
+        .map((variant) => {
+          const specs = optionSpecs(variant, product);
+          const subcategoryId = variant.subcategoryId || product.subcategoryId;
+          return {
+            id: variant.id,
+            sku: variant.sku,
+            label: variant.color,
+            subcategoryId,
+            price: { amountMinor: variant.priceMinor ?? product.priceMinor, currency: 'ILS' as const },
+            screenInches: screenInches(specs.specs, variant.color),
+            details: detailsFrom(specs.specs, specs.specsAr, category),
+          };
+        });
+      const amounts = options.map((option) => option.price.amountMinor);
+      const lead = options[0];
+      const leadSpecs = lead ? optionSpecs(product.variants.find((variant) => variant.id === lead.id) ?? product.variants[0]!, product) : { specs: product.specs, specsAr: product.specsAr };
+      const subcategory = category.subcategories.find((item) => item.id === (lead?.subcategoryId || product.subcategoryId));
       return [
         {
           id: product.id,
           slug: productSlug(product.id),
           categorySlug: category.slug,
           brandId: product.brandId,
-          subcategoryId: product.subcategoryId,
+          subcategoryId: lead?.subcategoryId || product.subcategoryId,
           name: product.name,
-          highlight: highlightFrom(product.specs, subcategory?.name),
-          price: { amountMinor: product.priceMinor, currency: 'ILS' as const },
+          highlight: highlightFrom(leadSpecs.specs, subcategory?.name),
+          price: { amountMinor: amounts.length > 0 ? Math.min(...amounts) : product.priceMinor, currency: 'ILS' as const },
           compareAtPrice: null,
           badges: [],
           developmentFixture: false,
           images: imagesFrom(product),
-          attributes: attributesFrom(product.specs),
-          details: detailsFrom(product, category),
+          attributes: attributesFrom(leadSpecs.specs),
+          details: lead?.details ?? detailsFrom(product.specs, product.specsAr, category),
+          options,
         },
       ];
     }),

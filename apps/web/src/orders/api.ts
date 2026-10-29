@@ -60,7 +60,10 @@ async function request<T>(path: string, init?: RequestInit, auth = false): Promi
   return body as T;
 }
 
-export function quoteOrder(input: { lines: { productId: string; quantity: number }[]; couponCode: string }) {
+export function quoteOrder(input: {
+  lines: { productId: string; variantId?: string; quantity: number }[];
+  couponCode: string;
+}) {
   return request<Quote>('/api/orders/quote', { method: 'POST', body: JSON.stringify(input) });
 }
 
@@ -71,7 +74,7 @@ export function shippingZones() {
 }
 
 export function placeOrder(input: {
-  lines: { productId: string; quantity: number }[];
+  lines: { productId: string; variantId?: string; quantity: number }[];
   couponCode: string;
   note: string;
   locale: 'he' | 'ar';

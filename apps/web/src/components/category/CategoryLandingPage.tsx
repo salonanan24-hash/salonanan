@@ -23,9 +23,15 @@ export function CategoryLandingPage({
   const { locale, messages } = useI18n();
   const [params] = useSearchParams();
   const selectedSub = params.get('sub');
-  const visible = selectedSub ? products.filter((product) => product.subcategoryId === selectedSub) : products;
+  const visible = selectedSub
+    ? products.filter(
+        (product) =>
+          product.subcategoryId === selectedSub ||
+          (product.options ?? []).some((option) => option.subcategoryId === selectedSub),
+      )
+    : products;
   const landing = categoryLanding(category.slug);
-  const filters = listingFilters(category.slug, visible);
+  const filters = listingFilters(category.slug, visible, selectedSub ?? '');
   const savedSubs = category.subcategories ?? [];
   const subcategories = savedSubs.length > 0 ? [] : brandSubcategories(products);
   const banner = category.image || categoryImage(category.slug);
@@ -60,10 +66,7 @@ export function CategoryLandingPage({
       <Breadcrumbs
         items={[{ label: messages.common.home, to: '/' }, { label: category.name[locale] }]}
       />
-      <div className="mt-4 flex items-center justify-between gap-6 overflow-hidden rounded-[2rem] border-2 border-brand-red bg-white px-6 py-5 sm:px-10">
-        <h1 className="text-3xl font-extrabold text-brand-red sm:text-4xl">{category.name[locale]}</h1>
-        <img src={banner} alt="" className="h-28 w-auto max-w-[46%] object-contain sm:h-40" />
-      </div>
+      <h1 className="mt-5 text-4xl font-extrabold tracking-tight text-ink sm:text-5xl">{category.name[locale]}</h1>
       {category.description[locale] ? (
         <p className="mt-3 max-w-3xl text-sm leading-6 text-muted">{category.description[locale]}</p>
       ) : null}

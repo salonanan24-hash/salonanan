@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Heart, Scale } from 'lucide-react';
-import { Link, useParams } from 'react-router-dom';
-import { orderedImages, primaryImage } from '@/data/catalog';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { optionModel, optionTitle, orderedImages, primaryImage, productOptions } from '@/data/catalog';
 import { useDevelopmentCatalog } from '@/hooks/use-catalog';
 import { usePageTitle } from '@/hooks/use-page-title';
 import { PriceDisplay } from '@/components/product/PriceDisplay';
@@ -19,14 +19,22 @@ import { useFavoritesStore } from '@/stores/favorites-store';
 
 export function ProductPage() {
   const { messages, locale } = useI18n();
-  const { slug = '' } = useParams();
+  const { slug = '', sku = '' } = useParams();
+  const navigate = useNavigate();
   const { data } = useDevelopmentCatalog();
   const product = data.products.find((item) => item.slug === slug);
   const brand = data.brands.find((item) => item.id === product?.brandId);
   const category = data.categories.find((item) => item.slug === product?.categorySlug);
   const add = useCartStore((state) => state.add);
+  const options = product ? productOptions(product) : [];
+  const selected =
+    options.find((option) => option.sku && option.sku === decodeURIComponent(sku)) ?? options[0];
   const inCart = useCartStore((state) =>
-    product ? state.lines.some((line) => line.productId === product.id) : false,
+    product
+      ? state.lines.some(
+          (line) => line.productId === product.id && (line.variantId ?? '') === (selected?.id ?? ''),
+        )
+      : false,
   );
   const favorite = useFavoritesStore((state) => (product ? state.ids.includes(product.id) : false));
   const toggleFavorite = useFavoritesStore((state) => state.toggle);
@@ -41,6 +49,10 @@ export function ProductPage() {
     setActiveImage(0);
   }, [product?.id]);
   useEffect(() => {
+    if (!product || !selected?.sku || decodeURIComponent(sku) === selected.sku) return;
+    navigate(`/product/${product.slug}/${encodeURIComponent(selected.sku)}`, { replace: true });
+  }, [navigate, product, selected, sku]);
+  useEffect(() => {
     const node = addRef.current;
     if (!node) return;
     const observer = new IntersectionObserver(([entry]) => {
@@ -49,7 +61,13 @@ export function ProductPage() {
     observer.observe(node);
     return () => observer.disconnect();
   }, [product?.id]);
-  usePageTitle(product?.name[locale] ?? messages.product.missingTitle);
+  const title = product ? optionTitle(product.name[locale], selected) : '';
+  const model = optionModel(selected);
+  const subcategoryName =
+    category?.subcategories?.find((item) => item.id === selected?.subcategoryId)?.name[locale] ||
+    product?.highlight[locale] ||
+    '';
+  usePageTitle(title ? (model ? `${title} ${model}` : title) : messages.product.missingTitle);
 
   if (!product || !category) {
     return <StatusPage title={messages.product.missingTitle} body={messages.product.missingBody} />;
@@ -113,17 +131,46 @@ export function ProductPage() {
         <div>
           <p className="text-sm font-bold text-brand-red">{messages.product.demo}</p>
           <p className="mt-3 text-sm font-semibold text-brand-blue">{brand?.name}</p>
-          <h1 className="mt-1 text-3xl font-bold text-ink">{product.name[locale]}</h1>
-          <p className="mt-3 text-base leading-7 text-muted">{product.highlight[locale]}</p>
+          <h1 className="mt-1 text-3xl font-bold text-ink">{title}</h1>
+          {model ? <p className="mt-1 text-2xl font-bold text-ink">{model}</p> : null}
+          {selected?.sku ? (
+            <p className="mt-1 text-sm text-muted">
+              {messages.product.sku}: {selected.sku}
+            </p>
+          ) : null}
+          {subcategoryName ? <p className="mt-3 text-base leading-7 text-muted">{subcategoryName}</p> : null}
+          {options.length > 1 ? (
+            <div className="mt-4">
+              <p className="text-sm font-semibold text-ink">{messages.product.size}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {options.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    aria-pressed={option.id === selected?.id}
+                    onClick={() => {
+                      if (!option.sku) return;
+                      navigate(`/product/${product.slug}/${encodeURIComponent(option.sku)}`);
+                    }}
+                    className={`h-9 min-w-12 rounded-lg border px-3 text-sm font-bold ${
+                      option.id === selected?.id ? 'border-brand-blue text-brand-blue' : 'border-line text-ink'
+                    }`}
+                  >
+                    {option.label || option.sku}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <div className="mt-6">
-            <PriceDisplay price={product.price} compareAt={product.compareAtPrice} />
+            <PriceDisplay price={selected?.price ?? product.price} compareAt={product.compareAtPrice} />
           </div>
           <p className="mt-4 text-sm leading-6 text-muted">{messages.product.availability}</p>
           <div className="mt-6 flex flex-wrap gap-3">
             <button
               ref={addRef}
               type="button"
-              onClick={() => pushToast(add(product.id) === 'max' ? 'cartMax' : 'cartAdded')}
+              onClick={() => pushToast(add(product.id, selected?.id ?? '') === 'max' ? 'cartMax' : 'cartAdded')}
               className="inline-flex h-12 min-w-40 cursor-pointer items-center justify-center bg-brand-blue px-8 text-sm font-semibold text-white transition duration-200 hover:-translate-y-0.5 hover:bg-brand-blue-dark hover:shadow-[0_10px_20px_rgb(12_86_149/0.28)] active:translate-y-0"
             >
               {inCart ? messages.product.inCart : messages.product.add}
@@ -172,8 +219,8 @@ export function ProductPage() {
       </div>
       <div className="mt-10 lg:w-1/2">
         <ProductDetails
-          name={product.name[locale]}
-          details={product.details ?? { spec: [], features: [], info: [] }}
+          name={model ? `${title} ${model}` : title}
+          details={selected?.details ?? product.details ?? { spec: [], features: [], info: [] }}
         />
       </div>
       {brand && moreProducts.length > 0 ? (
@@ -188,11 +235,11 @@ export function ProductPage() {
         <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white/95 backdrop-blur">
           <Container className="flex items-center gap-3 py-2">
             <img src={shown.src} alt="" className="h-12 w-12 shrink-0 object-contain" />
-            <p className="min-w-0 flex-1 truncate text-sm font-bold text-ink">{product.name[locale]}</p>
-            <PriceDisplay price={product.price} compareAt={product.compareAtPrice} compact />
+            <p className="min-w-0 flex-1 truncate text-sm font-bold text-ink">{model ? `${title} · ${model}` : title}</p>
+            <PriceDisplay price={selected?.price ?? product.price} compareAt={product.compareAtPrice} compact />
             <button
               type="button"
-              onClick={() => pushToast(add(product.id) === 'max' ? 'cartMax' : 'cartAdded')}
+              onClick={() => pushToast(add(product.id, selected?.id ?? '') === 'max' ? 'cartMax' : 'cartAdded')}
               className="inline-flex h-10 shrink-0 cursor-pointer items-center justify-center rounded-full bg-brand-blue px-4 text-sm font-bold text-white transition duration-200 hover:-translate-y-0.5 hover:bg-brand-blue-dark hover:shadow-[0_10px_20px_rgb(12_86_149/0.28)] active:translate-y-0"
             >
               {inCart ? messages.product.inCart : messages.product.add}

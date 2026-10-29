@@ -20,6 +20,7 @@ export async function adminRequest<T>(path: string, init?: RequestInit): Promise
   const token = await accessToken();
   const response = await fetch(`${apiUrl}${path}`, {
     ...init,
+    cache: 'no-store',
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
@@ -33,7 +34,7 @@ export async function adminRequest<T>(path: string, init?: RequestInit): Promise
   return (await response.json()) as T;
 }
 
-export async function fillProductFromLink(input: { model: string; url: string }): Promise<{
+export async function fillProductFromLink(input: { model: string; notes: string; images: string[] }): Promise<{
   draft: {
     nameHe: string;
     nameAr: string;
@@ -42,12 +43,23 @@ export async function fillProductFromLink(input: { model: string; url: string })
     subcategoryId: string;
     specs: Record<string, string>;
     specsAr: Record<string, string>;
+    price: string;
+    color: string;
+    variants: Array<{
+      label: string;
+      sku: string;
+      price: string;
+      subcategoryId: string;
+      specs: Record<string, string>;
+      specsAr: Record<string, string>;
+    }>;
   };
   created: { brand: string | null; category: string | null; subcategory: string | null; fields: string[] };
 }> {
   const token = await accessToken();
   const response = await fetch(`${apiUrl}/api/admin/products/intake`, {
     method: 'POST',
+    cache: 'no-store',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
   });
@@ -62,6 +74,16 @@ export async function fillProductFromLink(input: { model: string; url: string })
       subcategoryId: string;
       specs: Record<string, string>;
       specsAr: Record<string, string>;
+      price: string;
+      color: string;
+      variants: Array<{
+        label: string;
+        sku: string;
+        price: string;
+        subcategoryId: string;
+        specs: Record<string, string>;
+        specsAr: Record<string, string>;
+      }>;
     };
     created: { brand: string | null; category: string | null; subcategory: string | null; fields: string[] };
   };

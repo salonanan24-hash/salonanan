@@ -79,6 +79,7 @@ adminRouter.get(
           settings: (await readCatalog()).settings,
         }
       : await readCatalog();
+    res.set('Cache-Control', 'no-store');
     res.json({ empty, catalog });
   }),
 );
