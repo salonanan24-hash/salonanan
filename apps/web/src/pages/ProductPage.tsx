@@ -8,10 +8,10 @@ import { PriceDisplay } from '@/components/product/PriceDisplay';
 import { ProductDetails } from '@/components/product/ProductDetails';
 import { ProductImage } from '@/components/product/ProductImage';
 import { Container } from '@/components/ui/Container';
-import { DevNotice } from '@/components/ui/DevNotice';
 import { StatusPage } from '@/components/ui/StatusPage';
 import { fill, useI18n } from '@/i18n';
 import { BrandShelf } from '@/components/product/BrandShelf';
+import { ProductPurchaseInfo } from '@/components/product/ProductPurchaseInfo';
 import { pushToast } from '@/components/ui/ActionToast';
 import { useCartStore } from '@/stores/cart-store';
 import { useCompareStore } from '@/stores/compare-store';
@@ -87,7 +87,6 @@ export function ProductPage() {
           {category.name[locale]}
         </Link>
       </nav>
-      <DevNotice />
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <div className="rounded border border-line bg-white p-4">
           <div className="flex aspect-[4/3] items-center justify-center bg-white p-4">
@@ -129,8 +128,7 @@ export function ProductPage() {
           </p>
         </div>
         <div>
-          <p className="text-sm font-bold text-brand-red">{messages.product.demo}</p>
-          <p className="mt-3 text-sm font-semibold text-brand-blue">{brand?.name}</p>
+          <p className="text-sm font-semibold text-brand-blue">{brand?.name}</p>
           <h1 className="mt-1 text-3xl font-bold text-ink">{title}</h1>
           {model ? <p className="mt-1 text-2xl font-bold text-ink">{model}</p> : null}
           {selected?.sku ? (
@@ -215,6 +213,7 @@ export function ProductPage() {
               {messages.product.backToCategory}
             </Link>
           </div>
+          <ProductPurchaseInfo />
         </div>
       </div>
       <div className="mt-10 lg:w-1/2">

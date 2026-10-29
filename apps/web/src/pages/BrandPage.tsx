@@ -4,7 +4,6 @@ import { useDevelopmentCatalog } from '@/hooks/use-catalog';
 import { usePageTitle } from '@/hooks/use-page-title';
 import { BrandLandingPage } from '@/components/brand/BrandLandingPage';
 import { Container } from '@/components/ui/Container';
-import { DevNotice } from '@/components/ui/DevNotice';
 import { StatusPage } from '@/components/ui/StatusPage';
 import { useI18n } from '@/i18n';
 
@@ -27,7 +26,6 @@ export function BrandPage() {
 
   return (
     <Container>
-      <DevNotice />
       <BrandLandingPage brand={brand} products={products} />
     </Container>
   );

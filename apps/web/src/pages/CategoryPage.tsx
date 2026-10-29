@@ -3,7 +3,6 @@ import { useDevelopmentCatalog } from '@/hooks/use-catalog';
 import { usePageTitle } from '@/hooks/use-page-title';
 import { CategoryLandingPage } from '@/components/category/CategoryLandingPage';
 import { Container } from '@/components/ui/Container';
-import { DevNotice } from '@/components/ui/DevNotice';
 import { StatusPage } from '@/components/ui/StatusPage';
 import { useI18n } from '@/i18n';
 
@@ -24,7 +23,6 @@ export function CategoryPage() {
 
   return (
     <Container>
-      <DevNotice />
       <CategoryLandingPage category={category} products={products} />
     </Container>
   );
