@@ -12,10 +12,13 @@ type ProductCarouselProps = {
   href?: string;
   actionLabel?: string;
   headingId?: string;
+  perRow?: 5 | 6;
 };
 
-const cardWidth =
-  'w-[calc((100cqw-0.75rem)/2)] md:w-[calc((100cqw-1.5rem)/3)] lg:w-[calc((100cqw-3rem)/4)] xl:w-[calc((100cqw-5rem)/6)] retail:w-[calc((100cqw-5rem)/6)]';
+const cardWidth = {
+  5: 'w-[calc((100cqw-0.75rem)/2)] md:w-[calc((100cqw-1.5rem)/3)] lg:w-[calc((100cqw-3rem)/4)] xl:w-[calc((100cqw-4rem)/5)] retail:w-[calc((100cqw-4rem)/5)]',
+  6: 'w-[calc((100cqw-0.75rem)/2)] md:w-[calc((100cqw-1.5rem)/3)] lg:w-[calc((100cqw-3rem)/4)] xl:w-[calc((100cqw-5rem)/6)] retail:w-[calc((100cqw-5rem)/6)]',
+} as const;
 
 function motion(): ScrollBehavior {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
@@ -43,6 +46,7 @@ export function ProductCarousel({
   href,
   actionLabel,
   headingId,
+  perRow = 5,
 }: ProductCarouselProps) {
   const { messages } = useI18n();
   const scrollerId = `product-carousel-${useId().replaceAll(':', '')}`;
@@ -243,7 +247,7 @@ export function ProductCarousel({
               ref={(node) => {
                 itemRefs.current[index] = node;
               }}
-              className={`shrink-0 snap-start ${cardWidth}`}
+              className={`shrink-0 snap-start ${cardWidth[perRow]}`}
             >
               <ProductCard product={product} />
             </li>

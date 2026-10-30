@@ -370,6 +370,7 @@ function ProductSection({
           subtitle={subtitle}
           href={href}
           actionLabel={href ? messages.home.viewCategory : undefined}
+          perRow={6}
         />
       </div>
       </Reveal>
