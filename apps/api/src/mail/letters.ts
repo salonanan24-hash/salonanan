@@ -33,7 +33,7 @@ export type MailOrder = {
 
 const storeName: Record<MailLocale, string> = {
   he: 'סלון ענאן',
-  ar: 'صالون عنان',
+  ar: 'معرض عنان',
 };
 
 function esc(value: string): string {
@@ -163,7 +163,7 @@ const statusCopy: Record<MailStatus, Record<MailLocale, { subject: string; lead:
   },
   completed: {
     he: { subject: 'ההזמנה {number} הושלמה', lead: 'ההזמנה שלך הושלמה. תודה שקנית בסלון ענאן.' },
-    ar: { subject: 'اكتمل الطلب {number}', lead: 'اكتمل طلبك. شكراً لتسوقك من صالون عنان.' },
+    ar: { subject: 'اكتمل الطلب {number}', lead: 'اكتمل طلبك. شكراً لتسوقك من معرض عنان.' },
   },
   cancelled: {
     he: { subject: 'ההזמנה {number} בוטלה', lead: 'ההזמנה שלך בוטלה. אם זה לא מה שביקשת, אפשר להשיב למייל הזה.' },
@@ -181,9 +181,9 @@ export async function sendWelcome(email: string, maxAgeMs = 30 * 60 * 1000): Pro
   if (meta.welcome_sent === true) return;
   const locale: MailLocale = meta.preferred_locale === 'ar' ? 'ar' : 'he';
   const name = typeof meta.full_name === 'string' ? meta.full_name : '';
-  const subject = locale === 'ar' ? 'أهلاً بك في صالون عنان' : 'ברוכים הבאים לסלון ענאן';
+  const subject = locale === 'ar' ? 'أهلاً بك في معرض عنان' : 'ברוכים הבאים לסלון ענאן';
   const lead = locale === 'ar'
-    ? 'يسعدنا انضمامك إلى صالون عنان. يمكنك تسجيل الدخول إلى الحساب، متابعة الطلبات وشراء أجهزة كهربائية للبيت.'
+    ? 'يسعدنا انضمامك إلى معرض عنان. يمكنك تسجيل الدخول إلى الحساب، متابعة الطلبات وشراء أجهزة كهربائية للبيت.'
     : 'שמחים שהצטרפת לסלון ענאן. אפשר להיכנס לחשבון, לעקוב אחרי הזמנות ולקנות מוצרי חשמל לבית.';
   const ignore = locale === 'ar'
     ? 'إذا لم تقم بإنشاء الحساب، يمكن تجاهل هذه الرسالة.'
@@ -206,7 +206,7 @@ export async function sendOrderPlaced(order: MailOrder): Promise<void> {
   const locale = order.locale;
   const subject = locale === 'ar' ? `تم استلام الطلب ${order.number}` : `ההזמנה ${order.number} התקבלה`;
   const lead = locale === 'ar'
-    ? 'شكراً لطلبك من صالون عنان. استلمنا الطلب وسنرسل لك بريداً عند تغيّر حالته.'
+    ? 'شكراً لطلبك من معرض عنان. استلمنا الطلب وسنرسل لك بريداً عند تغيّر حالته.'
     : 'תודה על ההזמנה בסלון ענאן. קיבלנו אותה ונשלח עדכון כשהסטטוס ישתנה.';
   const customerHtml = page(
     locale,
@@ -236,7 +236,7 @@ export async function sendOrderPlaced(order: MailOrder): Promise<void> {
 export async function sendPasswordCodeMail(email: string, code: string, locale: MailLocale): Promise<boolean> {
   const subject = locale === 'ar' ? 'رمز إعادة تعيين كلمة المرور' : 'קוד לאיפוס הסיסמה';
   const lead = locale === 'ar'
-    ? 'استخدموا هذا الرمز لتعيين كلمة مرور جديدة في صالون عنان. الرمز صالح لمدة 5 دقائق.'
+    ? 'استخدموا هذا الرمز لتعيين كلمة مرور جديدة في معرض عنان. الرمز صالح لمدة 5 دقائق.'
     : 'השתמשו בקוד הזה כדי לבחור סיסמה חדשה בסלון ענאן. הקוד תקף ל־5 דקות.';
   const html = page(
     locale,
