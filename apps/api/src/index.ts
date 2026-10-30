@@ -12,6 +12,7 @@ const server = app.listen(config.port, () => {
     supabaseConfigured: isSupabaseConfigured(),
     supabaseAnonPresent: config.supabaseAnonKey.length > 0,
     openaiConfigured: config.openaiApiKey.length > 0,
+    resendConfigured: config.resendApiKey.length > 0,
   });
 });
 

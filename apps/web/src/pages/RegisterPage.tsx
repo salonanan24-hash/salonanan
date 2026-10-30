@@ -13,6 +13,7 @@ import {
   authInputClass,
 } from '@/components/auth/AuthFields';
 import { useI18n } from '@/i18n';
+import { apiBase } from '@/lib/api-url';
 import { messageFor } from './LoginPage';
 
 export function RegisterPage() {
@@ -61,6 +62,15 @@ export function RegisterPage() {
       holdAccount.current = false;
       setNotice(messageFor(result.error, messages.auth));
       return;
+    }
+    try {
+      await fetch(`${apiBase()}/api/account/welcome`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim() }),
+      });
+    } catch {
+      // The account already exists. A missing welcome mail should not block sign-in.
     }
     markRegisterWelcome();
     navigate('/login');

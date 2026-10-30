@@ -1,6 +1,8 @@
 import type { Request } from 'express';
 import { z } from 'zod';
 import { AppError } from '../errors/app-error.js';
+import { logger } from '../lib/logger.js';
+import { sendOrderPlaced, sendOrderStatus, type MailOrder } from '../mail/letters.js';
 import { getSupabaseAdmin, isSupabaseConfigured } from '../lib/supabase.js';
 
 const lineSchema = z.object({
@@ -60,6 +62,7 @@ export type StoredOrder = {
   customerName: string;
   customerEmail: string;
   customerPhone: string;
+  locale: 'he' | 'ar';
   items: Array<{
     id: string;
     name: { he: string; ar: string };
@@ -192,6 +195,7 @@ function mapOrder(row: Record<string, unknown>, items: StoredOrder['items']): St
     customerName: String(row.customer_name ?? ''),
     customerEmail: String(row.customer_email ?? ''),
     customerPhone: String(row.customer_phone ?? ''),
+    locale: row.locale === 'ar' ? 'ar' : 'he',
     items,
   };
 }
@@ -334,7 +338,7 @@ export async function placeOrder(input: z.infer<typeof placeSchema>, customerId:
     throw new AppError(500, 'database', 'Database write failed');
   }
 
-  return mapOrder(inserted.data, itemRows.map((item) => ({
+  const order = mapOrder(inserted.data, itemRows.map((item) => ({
     id: item.id,
     name: { he: item.product_name_he, ar: item.product_name_ar },
     quantity: item.quantity,
@@ -342,6 +346,12 @@ export async function placeOrder(input: z.infer<typeof placeSchema>, customerId:
     lineTotalMinor: item.line_total_minor,
     image: item.image_src,
   })));
+  try {
+    await sendOrderPlaced(mailOrder(order));
+  } catch (error) {
+    logger.error('order mail failed', { message: error instanceof Error ? error.message : 'unknown' });
+  }
+  return order;
 }
 
 export async function listOrdersForUser(userId: string, email: string): Promise<StoredOrder[]> {
@@ -367,15 +377,55 @@ export async function orderForUser(id: string, userId: string, email: string): P
 const orderStatusSchema = z.enum(['placed', 'processing', 'ready', 'shipping', 'completed', 'cancelled']);
 
 export async function updateOrderStatus(id: string, status: z.infer<typeof orderStatusSchema>): Promise<void> {
-  const current = await db().from('orders').select('id, delivery_method').eq('id', id).maybeSingle();
+  const current = await db().from('orders').select('id, delivery_method, status').eq('id', id).maybeSingle();
   if (current.error) throw new AppError(500, 'database', 'Database write failed');
   if (!current.data) throw new AppError(404, 'not_found', 'Order was not found');
   const home = current.data.delivery_method === 'home';
   if (status === 'ready' && home) throw new AppError(400, 'status', 'Ready is only for store pickup');
   if (status === 'shipping' && !home) throw new AppError(400, 'status', 'Shipping is only for home delivery');
+  if (current.data.status === status) return;
   const result = await db().from('orders').update({ status }).eq('id', id).select('id').maybeSingle();
   if (result.error) throw new AppError(500, 'database', 'Database write failed');
   if (!result.data) throw new AppError(404, 'not_found', 'Order was not found');
+  try {
+    await sendOrderStatus(mailOrder(await storedOrder(id)));
+  } catch (error) {
+    logger.error('status mail failed', { message: error instanceof Error ? error.message : 'unknown' });
+  }
+}
+
+async function storedOrder(id: string): Promise<StoredOrder> {
+  const result = await db().from('orders').select('*').eq('id', id).maybeSingle();
+  if (result.error) throw new AppError(500, 'database', 'Database write failed');
+  if (!result.data) throw new AppError(404, 'not_found', 'Order was not found');
+  const items = await itemsFor([id]);
+  return mapOrder(result.data, items.get(id) ?? []);
+}
+
+function mailOrder(order: StoredOrder): MailOrder {
+  return {
+    number: order.number,
+    placedAt: order.placedAt,
+    status: order.status,
+    locale: order.locale,
+    subtotalMinor: order.subtotalMinor,
+    discountMinor: order.discountMinor,
+    deliveryMinor: order.deliveryMinor,
+    totalMinor: order.totalMinor,
+    couponCode: order.couponCode,
+    note: order.note,
+    deliveryMethod: order.deliveryMethod,
+    shippingZone: order.shippingZone,
+    shippingAddress: order.shippingAddress,
+    customerName: order.customerName,
+    customerEmail: order.customerEmail,
+    customerPhone: order.customerPhone,
+    items: order.items.map((item) => ({
+      name: item.name,
+      quantity: item.quantity,
+      lineTotalMinor: item.lineTotalMinor,
+    })),
+  };
 }
 
 export async function countRegisteredCustomers(): Promise<number> {

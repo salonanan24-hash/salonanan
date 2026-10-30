@@ -11,6 +11,8 @@ const envSchema = z.object({
   OPENAI_API_KEY: z.string().default(''),
   OPENAI_MODEL: z.string().default('gpt-4o-mini'),
   OPENAI_BASE_URL: z.string().default('https://api.openai.com/v1'),
+  RESEND_API_KEY: z.string().default(''),
+  RESEND_FROM: z.string().default('onboarding@resend.dev'),
 });
 
 function readUrl(value: string): string {
@@ -40,6 +42,8 @@ const parsed = envSchema.parse({
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   OPENAI_MODEL: process.env.OPENAI_MODEL,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+  RESEND_API_KEY: process.env.RESEND_API_KEY,
+  RESEND_FROM: process.env.RESEND_FROM,
 });
 
 export const config = {
@@ -54,6 +58,8 @@ export const config = {
   openaiApiKey: parsed.OPENAI_API_KEY.trim(),
   openaiModel: parsed.OPENAI_MODEL.trim() || 'gpt-4o-mini',
   openaiBaseUrl: httpBase(parsed.OPENAI_BASE_URL),
+  resendApiKey: parsed.RESEND_API_KEY.trim(),
+  resendFrom: parsed.RESEND_FROM.trim() || 'onboarding@resend.dev',
 };
 
 function httpBase(value: string): string {

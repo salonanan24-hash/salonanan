@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { adminRouter } from '../admin/routes.js';
+import { accountRouter } from './account.js';
 import { catalogRouter } from './catalog.js';
 import { healthRouter } from './health.js';
 import { ordersRouter } from './orders.js';
@@ -10,6 +11,7 @@ export const apiRouter = Router();
 
 apiRouter.use(healthRouter);
 apiRouter.use('/catalog', catalogRouter);
+apiRouter.use('/account', accountRouter);
 apiRouter.use('/orders', ordersRouter);
 apiRouter.use('/packages', packagesRouter);
 apiRouter.use('/home-ads', homeAdsRouter);

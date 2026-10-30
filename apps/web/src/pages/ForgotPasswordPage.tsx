@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { useAuth } from '@/auth/auth-context';
+import { useNavigate } from 'react-router-dom';
 import {
   AuthCard,
   AuthLabel,
@@ -8,18 +8,19 @@ import {
   AuthSwitch,
   authInputClass,
 } from '@/components/auth/AuthFields';
+import { requestPasswordCode, savePasswordReset, verifyPasswordCode } from '@/auth/password-reset';
 import { useI18n } from '@/i18n';
-import { messageFor } from './LoginPage';
 
 export function ForgotPasswordPage() {
-  const { messages } = useI18n();
-  const auth = useAuth();
+  const { locale, messages } = useI18n();
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
+  const [code, setCode] = useState('');
+  const [step, setStep] = useState<'email' | 'code'>('email');
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState('');
-  const [sent, setSent] = useState(false);
 
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+  async function sendCode(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!email.trim()) {
       setNotice(messages.auth.missing);
@@ -27,21 +28,39 @@ export function ForgotPasswordPage() {
     }
     setPending(true);
     setNotice('');
-    const result = await auth.requestPasswordReset(email.trim());
-    setPending(false);
-    if (result.error) {
-      setNotice(messageFor(result.error, messages.auth));
+    try {
+      await requestPasswordCode(email.trim(), locale);
+      setStep('code');
+    } catch {
+      setNotice(messages.auth.failed);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function checkCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!/^\d{6}$/.test(code)) {
+      setNotice(messages.auth.codeInvalid);
       return;
     }
-    setSent(true);
+    setPending(true);
+    setNotice('');
+    try {
+      const result = await verifyPasswordCode(email.trim(), code);
+      savePasswordReset({ email: email.trim(), token: result.token });
+      navigate('/reset-password');
+    } catch (error) {
+      setNotice(error instanceof Error && error.message === 'invalid_code' ? messages.auth.codeInvalid : messages.auth.failed);
+    } finally {
+      setPending(false);
+    }
   }
 
   return (
     <AuthCard title={messages.auth.forgotTitle}>
-      {sent ? (
-        <AuthNotice tone="ok">{messages.auth.resetSent}</AuthNotice>
-      ) : (
-        <form onSubmit={onSubmit}>
+      {step === 'email' ? (
+        <form onSubmit={sendCode}>
           <AuthLabel label={messages.auth.email}>
             <input
               type="email"
@@ -53,6 +72,35 @@ export function ForgotPasswordPage() {
           </AuthLabel>
           {notice ? <AuthNotice>{notice}</AuthNotice> : null}
           <AuthSubmit pending={pending} label={messages.auth.submitForgot} />
+        </form>
+      ) : (
+        <form onSubmit={checkCode}>
+          <AuthNotice tone="ok">{messages.auth.resetSent}</AuthNotice>
+          <AuthLabel label={messages.auth.codeLabel}>
+            <input
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              dir="ltr"
+              maxLength={6}
+              value={code}
+              onChange={(event) => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+              className={`${authInputClass} text-center text-lg tracking-[0.4em]`}
+            />
+          </AuthLabel>
+          {notice ? <AuthNotice>{notice}</AuthNotice> : null}
+          <AuthSubmit pending={pending} label={messages.auth.submitCode} />
+          <button
+            type="button"
+            disabled={pending}
+            onClick={() => {
+              setStep('email');
+              setCode('');
+              setNotice('');
+            }}
+            className="mt-4 block text-sm font-semibold text-brand-blue"
+          >
+            {messages.auth.changeEmail}
+          </button>
         </form>
       )}
       <AuthSwitch prompt={messages.auth.hasAccount} to="/login" label={messages.auth.loginTitle} />

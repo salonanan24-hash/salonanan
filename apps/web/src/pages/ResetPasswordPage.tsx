@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { useAuth } from '@/auth/auth-context';
 import { passwordIsStrong } from '@/auth/password';
+import { clearPasswordReset, readPasswordReset, resetPassword } from '@/auth/password-reset';
 import {
   AuthCard,
   AuthNotice,
@@ -9,11 +9,10 @@ import {
   PasswordField,
 } from '@/components/auth/AuthFields';
 import { useI18n } from '@/i18n';
-import { messageFor } from './LoginPage';
 
 export function ResetPasswordPage() {
   const { messages } = useI18n();
-  const auth = useAuth();
+  const grant = readPasswordReset();
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [pending, setPending] = useState(false);
@@ -22,6 +21,7 @@ export function ResetPasswordPage() {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!grant) return;
     if (!password || !confirm) {
       setNotice(messages.auth.missing);
       return;
@@ -36,25 +36,28 @@ export function ResetPasswordPage() {
     }
     setPending(true);
     setNotice('');
-    const result = await auth.updatePassword(password);
-    setPending(false);
-    if (result.error) {
-      setNotice(messageFor(result.error, messages.auth));
-      return;
+    try {
+      await resetPassword(grant.email, grant.token, password);
+      clearPasswordReset();
+      setDone(true);
+    } catch (error) {
+      const code = error instanceof Error ? error.message : '';
+      setNotice(code === 'password' ? messages.auth.passwordShort : code === 'invalid_code' ? messages.auth.codeInvalid : messages.auth.failed);
+    } finally {
+      setPending(false);
     }
-    setDone(true);
   }
 
   return (
     <AuthCard title={messages.auth.resetTitle}>
-      {!auth.ready ? null : done ? (
+      {done ? (
         <>
           <AuthNotice tone="ok">{messages.auth.resetDone}</AuthNotice>
-          <Link to="/account" className="mt-6 inline-block text-sm font-bold text-brand-red">
-            {messages.account.title}
+          <Link to="/login" className="mt-6 inline-block text-sm font-bold text-brand-red">
+            {messages.auth.loginTitle}
           </Link>
         </>
-      ) : !auth.user ? (
+      ) : !grant ? (
         <AuthNotice>{messages.auth.resetMissing}</AuthNotice>
       ) : (
         <form onSubmit={onSubmit}>
