@@ -30,6 +30,8 @@ type DraftVariant = {
   specsAr: Record<string, string>;
   stock: number;
   active: boolean;
+  onSale: boolean;
+  inPackages: boolean;
   colorHex: string;
 };
 
@@ -54,6 +56,8 @@ function blankVariant(): DraftVariant {
     specsAr: {},
     stock: 0,
     active: true,
+    onSale: false,
+    inPackages: false,
     colorHex: '#172033',
   };
 }
@@ -82,6 +86,8 @@ function variantFromProduct(product: AdminProduct, variant: AdminVariant): Draft
     specsAr: own ? variant.specsAr : { ...product.specsAr },
     stock: variant.stock,
     active: variant.active,
+    onSale: variant.onSale,
+    inPackages: variant.inPackages,
     colorHex: variant.colorHex,
   };
 }
@@ -274,6 +280,8 @@ export function ProductsPage() {
         specsAr: variant.specsAr,
         stock: Math.max(0, Math.round(Number(variant.stock) || 0)),
         active: variant.active,
+        onSale: variant.onSale,
+        inPackages: variant.inPackages,
         images: index === 0 ? draft.images : [],
       })),
     };
@@ -543,6 +551,24 @@ function VariantEditor({
                 onChange={(event) => onChange(variant.id, { stock: Number(event.target.value) })}
               />
             </Field>
+            <label className="flex items-center gap-2 self-end text-sm font-bold text-ink">
+              <input
+                type="checkbox"
+                checked={variant.onSale}
+                onChange={(event) => onChange(variant.id, { onSale: event.target.checked })}
+                className="size-4 accent-[#e52629]"
+              />
+              {copy.onSale}
+            </label>
+            <label className="flex items-center gap-2 self-end text-sm font-bold text-ink">
+              <input
+                type="checkbox"
+                checked={variant.inPackages}
+                onChange={(event) => onChange(variant.id, { inPackages: event.target.checked })}
+                className="size-4 accent-[#1d4e89]"
+              />
+              {copy.inPackages}
+            </label>
           </div>
           {category && category.subcategories.length > 0 ? (
             <div className="mt-3">

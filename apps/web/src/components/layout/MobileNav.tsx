@@ -146,7 +146,22 @@ export function MobileNav({ open, onClose, returnFocusRef }: MobileNavProps) {
           </button>
         </div>
         <nav aria-label={messages.nav.main} className="flex-1 overflow-y-auto">
-          <ul className="sticky top-0 z-10 bg-white">
+          <ul>
+            {(
+              [
+                { to: '/', label: messages.common.home },
+                { to: '/contact', label: messages.nav.contact },
+                { to: '/packages', label: messages.packages.title },
+                { to: '/sales', label: messages.sales.title },
+              ] as const
+            ).map((item) => (
+              <li key={item.to} className="border-b border-line">
+                <Link to={item.to} onClick={closeAndReturn} className="flex items-center justify-between px-4 py-3.5 text-sm font-bold text-ink">
+                  <span>{item.label}</span>
+                  <ChevronLeft className="h-4 w-4 shrink-0" aria-hidden="true" />
+                </Link>
+              </li>
+            ))}
             <li className="border-b border-line">
               <Link to="/favorites" onClick={closeAndReturn} className="flex items-center justify-between px-4 py-3.5 text-sm font-bold text-ink">
                 <span>{messages.nav.favorites} ({favorites})</span>

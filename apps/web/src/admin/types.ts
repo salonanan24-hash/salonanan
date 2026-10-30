@@ -49,6 +49,8 @@ export type AdminVariant = {
   specsAr: Record<string, string>;
   stock: number;
   active: boolean;
+  onSale: boolean;
+  inPackages: boolean;
   images: AdminImage[];
 };
 

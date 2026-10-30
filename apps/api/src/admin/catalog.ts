@@ -40,6 +40,8 @@ const variantSchema = z.object({
   specsAr: specMap.default({}),
   stock: z.number().int().min(0).max(1_000_000),
   active: z.boolean(),
+  onSale: z.boolean().default(false),
+  inPackages: z.boolean().default(false),
   images: z.array(imageSchema).max(12),
 });
 
@@ -153,7 +155,7 @@ export async function readCatalog(): Promise<CatalogPayload> {
       client.from('brands').select('id, slug, name, image_src, sort_order').order('sort_order'),
       client.from('products').select('id, name_he, name_ar, price_minor, brand_id, category_id, subcategory_id, sort_order').order('sort_order'),
       client.from('product_specs').select('product_id, field_id, value, value_ar'),
-      client.from('product_variants').select('id, product_id, color, color_hex, sku, price_minor, subcategory_id, stock, is_active, sort_order').order('sort_order'),
+      client.from('product_variants').select('id, product_id, color, color_hex, sku, price_minor, subcategory_id, stock, is_active, on_sale, in_packages, sort_order').order('sort_order'),
       client.from('variant_specs').select('variant_id, field_id, value, value_ar'),
       client.from('variant_images').select('id, variant_id, src, sort_order').order('sort_order'),
       client.from('coupons').select('id, code, kind, value, ends_at, sort_order').order('sort_order'),
@@ -224,6 +226,8 @@ export async function readCatalog(): Promise<CatalogPayload> {
         ),
         stock: variant.stock,
         active: variant.is_active,
+        onSale: variant.on_sale,
+        inPackages: variant.in_packages,
         images: (imagesByVariant.get(variant.id) ?? []).map((image) => ({ id: image.id, src: image.src })),
       })),
     })),
@@ -343,6 +347,8 @@ export async function importCatalog(input: CatalogPayload): Promise<CatalogPaylo
       color_hex: variant.colorHex || '#172033',
       stock: variant.stock,
       is_active: variant.active,
+      on_sale: variant.onSale,
+      in_packages: variant.inPackages,
       sort_order: index,
     })),
   );
@@ -593,6 +599,8 @@ export async function saveProduct(input: z.infer<typeof productSchema>) {
             subcategory_id: variant.subcategoryId || null,
             stock: variant.stock,
             is_active: variant.active,
+            on_sale: variant.onSale,
+            in_packages: variant.inPackages,
             sort_order: index,
           })),
         )

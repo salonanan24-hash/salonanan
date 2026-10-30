@@ -173,6 +173,8 @@ export function toStorefront(catalog: CatalogPayload) {
             label: variant.color,
             subcategoryId,
             price: { amountMinor: variant.priceMinor ?? product.priceMinor, currency: 'ILS' as const },
+            onSale: variant.onSale,
+            inPackages: variant.inPackages,
             screenInches: screenInches(specs.specs, variant.color),
             details: detailsFrom(specs.specs, specs.specsAr, category),
           };

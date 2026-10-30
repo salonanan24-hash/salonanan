@@ -108,6 +108,8 @@ function toProduct(product: DemoProduct): AdminProduct {
         specsAr: {},
         stock: 0,
         active: true,
+        onSale: false,
+        inPackages: false,
         images: [...product.images]
           .sort((a, b) => a.sort - b.sort)
           .map((image, index) => ({ id: `${product.id}-img-${index}`, src: image.src })),

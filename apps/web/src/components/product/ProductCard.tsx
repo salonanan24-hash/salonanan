@@ -31,6 +31,7 @@ export function ProductCard({ product }: ProductCardProps) {
   const brand = brandById(product.brandId);
   const image = primaryImage(product);
   const focus = listedOption(product, params);
+  const onSale = (focus ?? productOptions(product)[0])?.onSale === true;
   const category = data.categories.find((item) => item.slug === product.categorySlug);
   const subcategory = category?.subcategories?.find((item) => item.id === focus?.subcategoryId);
   const name = focus ? optionTitle(product.name[locale], focus) : product.name[locale];
@@ -55,6 +56,11 @@ export function ProductCard({ product }: ProductCardProps) {
         <Link to={href} draggable={false} className="absolute inset-0 z-0">
           <span className="sr-only">{name}</span>
         </Link>
+        {onSale ? (
+          <span className="pointer-events-none absolute right-2 top-2 z-10 rounded-full bg-brand-red px-2.5 py-1 text-[11px] font-extrabold text-white">
+            {messages.product.saleBadge}
+          </span>
+        ) : null}
         <div className="pointer-events-none flex h-[172px] items-center justify-center overflow-hidden bg-white p-3 md:h-[188px]">
           <ProductImage
             src={image.src}

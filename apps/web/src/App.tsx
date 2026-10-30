@@ -26,6 +26,7 @@ import { FavoritesPage } from '@/pages/FavoritesPage';
 import { ContactPage, PrivacyPage, TermsPage } from '@/pages/LegalPage';
 import { HomePage } from '@/pages/HomePage';
 import { PackagesPage } from '@/pages/PackagesPage';
+import { SalesPage } from '@/pages/SalesPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { ProductPage } from '@/pages/ProductPage';
 
@@ -48,6 +49,7 @@ export function App() {
       <Route element={<StoreLayout />}>
         <Route index element={<HomePage />} />
         <Route path="packages" element={<PackagesPage />} />
+        <Route path="sales" element={<SalesPage />} />
         <Route path="category/:slug" element={<CategoryPage />} />
         <Route path="brands/:slug" element={<BrandPage />} />
         <Route path="product/:slug/:sku?" element={<ProductPage />} />

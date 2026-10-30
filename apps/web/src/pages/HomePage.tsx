@@ -417,27 +417,22 @@ function DepartmentGrid() {
     <Container className="py-6">
       <Reveal>
         <RuledTitle title={messages.home.departmentsTitle} />
-        <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <ul className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-4">
           {departmentSlugs.map((slug) => {
             const category = categoryBySlug(slug);
             if (!category) return null;
             return (
               <li key={slug}>
-                <Link
-                  to={`/category/${slug}`}
-                  className="group flex h-full flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-sm transition duration-300 hover:-translate-y-1 hover:shadow-lg"
-                >
-                  <span className="flex h-44 items-center justify-center bg-white">
+                <Link to={`/category/${slug}`} className="group flex flex-col items-center gap-3">
+                  <span className="flex aspect-square w-full max-w-44 items-center justify-center overflow-hidden rounded-full border border-line bg-[#f4f7fb] p-5 transition duration-300 group-hover:-translate-y-1 group-hover:border-brand-blue group-hover:shadow-md">
                     <img
                       src={categoryImage(slug)}
                       alt=""
-                      className="h-36 w-auto object-contain transition duration-500 group-hover:scale-105"
+                      className="h-full w-full object-contain transition duration-500 group-hover:scale-105"
                     />
                   </span>
-                  <span className="flex flex-1 flex-col p-4">
-                    <span className="text-lg font-extrabold text-ink">{category.name[locale]}</span>
-                    <span className="mt-1 text-sm leading-6 text-muted">{category.description[locale]}</span>
-                    <span className="mt-3 text-sm font-bold text-brand-blue">{messages.home.viewCategory}</span>
+                  <span className="text-center text-sm font-extrabold text-ink transition-colors group-hover:text-brand-blue sm:text-base">
+                    {category.name[locale]}
                   </span>
                 </Link>
               </li>

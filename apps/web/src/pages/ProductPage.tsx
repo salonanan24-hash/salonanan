@@ -89,7 +89,12 @@ export function ProductPage() {
       </nav>
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <div className="rounded border border-line bg-white p-4">
-          <div className="flex aspect-[4/3] items-center justify-center bg-white p-4">
+          <div className="relative flex aspect-[4/3] items-center justify-center bg-white p-4">
+            {selected?.onSale ? (
+              <span className="absolute right-3 top-3 z-10 rounded-full bg-brand-red px-3 py-1 text-xs font-extrabold text-white">
+                {messages.product.saleBadge}
+              </span>
+            ) : null}
             <ProductImage
               src={shown.src}
               alt={shown.alt[locale]}

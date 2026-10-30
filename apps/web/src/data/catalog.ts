@@ -511,6 +511,8 @@ export type StoreOption = {
   label: string;
   subcategoryId: string;
   price: { amountMinor: number; currency: 'ILS' };
+  onSale?: boolean;
+  inPackages?: boolean;
   screenInches?: number;
   details: ProductDetails;
 };

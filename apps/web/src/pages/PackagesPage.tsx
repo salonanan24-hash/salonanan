@@ -1,7 +1,9 @@
 import { formatMoney, ils } from '@anan/shared';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { primaryImage, productById } from '@/data/catalog';
+import { primaryImage, productById, productOptions } from '@/data/catalog';
+import { useDevelopmentCatalog } from '@/hooks/use-catalog';
+import { ProductGrid } from '@/components/product/ProductGrid';
 import { usePageTitle } from '@/hooks/use-page-title';
 import { useI18n } from '@/i18n';
 import { Container } from '@/components/ui/Container';
@@ -20,6 +22,8 @@ export function PackagesPage() {
   const { locale, messages } = useI18n();
   const copy = messages.packages;
   const [packages, setPackages] = useState<StorePackage[] | null>(null);
+  const { data } = useDevelopmentCatalog();
+  const marked = data.products.filter((product) => productOptions(product).some((option) => option.inPackages));
   usePageTitle(copy.title);
 
   useEffect(() => {
@@ -42,7 +46,12 @@ export function PackagesPage() {
       <h1 className="text-3xl font-extrabold text-ink">{copy.title}</h1>
       <p className="mt-2 text-sm text-muted">{copy.note}</p>
       {packages === null ? <p className="mt-8 text-sm text-muted">{messages.common.loading}</p> : null}
-      {packages?.length === 0 ? <p className="mt-8 text-sm text-ink">{copy.empty}</p> : null}
+      {packages?.length === 0 && marked.length === 0 ? <p className="mt-8 text-sm text-ink">{copy.empty}</p> : null}
+      {marked.length > 0 ? (
+        <div className="mt-8">
+          <ProductGrid products={marked} />
+        </div>
+      ) : null}
       <div className="mt-8 space-y-6">
         {packages?.map((item) => {
           const products = item.productIds.flatMap((id) => {

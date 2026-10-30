@@ -54,6 +54,20 @@ export function CategoryNav() {
                 {messages.packages.title}
               </Link>
             </li>
+            <li className="shrink-0">
+              <Link
+                to="/sales"
+                aria-current={pathname === '/sales' ? 'page' : undefined}
+                className={cn(
+                  'relative inline-flex h-12 items-center px-3 text-sm font-semibold transition after:absolute after:inset-x-3 after:bottom-1 after:h-0.5 after:origin-center after:rounded-full after:bg-brand-red after:transition',
+                  pathname === '/sales'
+                    ? 'text-brand-red after:scale-x-100'
+                    : 'text-ink after:scale-x-0 hover:text-brand-red hover:after:scale-x-100',
+                )}
+              >
+                {messages.sales.title}
+              </Link>
+            </li>
             {quickSlugs.map((slug) => {
               const category = categoryBySlug(slug);
               if (!category) return null;
