@@ -37,6 +37,9 @@ export const placeSchema = quoteSchema.extend({
 type PricedLine = {
   productId: string;
   variantId: string;
+  categoryId: string;
+  subcategoryId: string;
+  brandId: string;
   name: { he: string; ar: string };
   image: string;
   unitPriceMinor: number;
@@ -88,11 +91,11 @@ export async function optionalUser(req: Request) {
 
 async function pricedLines(lines: z.infer<typeof lineSchema>[]): Promise<PricedLine[]> {
   const ids = [...new Set(lines.map((line) => line.productId))];
-  const products = await db().from('products').select('id, name_he, name_ar, price_minor').in('id', ids);
+  const products = await db().from('products').select('id, name_he, name_ar, price_minor, category_id, subcategory_id, brand_id').in('id', ids);
   if (products.error) throw new AppError(500, 'database', 'Database write failed');
   const variants = await db()
     .from('product_variants')
-    .select('id, product_id, color, sku, price_minor, stock, is_active, sort_order')
+    .select('id, product_id, color, sku, price_minor, subcategory_id, stock, is_active, sort_order')
     .in('product_id', ids)
     .order('sort_order');
   if (variants.error) throw new AppError(500, 'database', 'Database write failed');
@@ -136,6 +139,9 @@ async function pricedLines(lines: z.infer<typeof lineSchema>[]): Promise<PricedL
     return {
       productId: product.id,
       variantId: variant.id,
+      categoryId: product.category_id,
+      subcategoryId: variant.subcategory_id || product.subcategory_id || '',
+      brandId: product.brand_id,
       name: {
         he: withSize(product.name_he),
         ar: withSize(product.name_ar),
@@ -149,26 +155,48 @@ async function pricedLines(lines: z.infer<typeof lineSchema>[]): Promise<PricedL
   });
 }
 
-async function discountFor(subtotalMinor: number, couponCode: string): Promise<{ code: string; discountMinor: number }> {
+async function discountFor(lines: PricedLine[], couponCode: string): Promise<{ code: string; discountMinor: number }> {
   const code = couponCode.trim().toUpperCase();
+  const subtotalMinor = lines.reduce((sum, line) => sum + line.lineTotalMinor, 0);
   if (!code) return { code: '', discountMinor: 0 };
-  const coupon = await db().from('coupons').select('code, kind, value, ends_at').eq('code', code).maybeSingle();
+  const coupon = await db()
+    .from('coupons')
+    .select('id, code, kind, value, ends_at, scope, category_id, subcategory_id, brand_id')
+    .eq('code', code)
+    .maybeSingle();
   if (coupon.error) throw new AppError(500, 'database', 'Database write failed');
   if (!coupon.data) throw new AppError(400, 'coupon', 'Coupon was not found');
   if (coupon.data.ends_at && coupon.data.ends_at < new Date().toISOString().slice(0, 10)) {
     throw new AppError(400, 'coupon', 'Coupon was not found');
   }
+  const links =
+    coupon.data.scope === 'products'
+      ? await db().from('coupon_products').select('product_id').eq('coupon_id', coupon.data.id)
+      : { data: [], error: null };
+  if (links.error) throw new AppError(500, 'database', 'Database write failed');
+  const productIds = new Set((links.data ?? []).map((row) => row.product_id));
+  const eligibleMinor = lines.reduce((sum, line) => {
+    const scope = coupon.data?.scope ?? 'site';
+    const matches =
+      scope === 'site' ||
+      (scope === 'category' && Boolean(coupon.data?.category_id) && line.categoryId === coupon.data?.category_id) ||
+      (scope === 'subcategory' && Boolean(coupon.data?.subcategory_id) && line.subcategoryId === coupon.data?.subcategory_id) ||
+      (scope === 'brand' && Boolean(coupon.data?.brand_id) && line.brandId === coupon.data?.brand_id) ||
+      (scope === 'products' && productIds.has(line.productId));
+    return matches ? sum + line.lineTotalMinor : sum;
+  }, 0);
+  if (eligibleMinor <= 0) throw new AppError(400, 'coupon_scope', 'Coupon does not apply to this cart');
   const discountMinor =
     coupon.data.kind === 'percent'
-      ? Math.min(subtotalMinor, Math.round((subtotalMinor * coupon.data.value) / 100))
-      : Math.min(subtotalMinor, coupon.data.value);
+      ? Math.min(subtotalMinor, Math.round((eligibleMinor * coupon.data.value) / 100))
+      : Math.min(eligibleMinor, coupon.data.value);
   return { code: coupon.data.code, discountMinor };
 }
 
 export async function quoteOrder(input: z.infer<typeof quoteSchema>) {
   const lines = await pricedLines(input.lines);
   const subtotalMinor = lines.reduce((sum, line) => sum + line.lineTotalMinor, 0);
-  const coupon = await discountFor(subtotalMinor, input.couponCode);
+  const coupon = await discountFor(lines, input.couponCode);
   return {
     subtotalMinor,
     discountMinor: coupon.discountMinor,
@@ -284,7 +312,7 @@ async function deliveryFor(input: z.infer<typeof placeSchema>['delivery'], local
 export async function placeOrder(input: z.infer<typeof placeSchema>, customerId: string | null): Promise<StoredOrder> {
   const lines = await pricedLines(input.lines);
   const subtotalMinor = lines.reduce((sum, line) => sum + line.lineTotalMinor, 0);
-  const coupon = await discountFor(subtotalMinor, input.couponCode);
+  const coupon = await discountFor(lines, input.couponCode);
   const delivery = await deliveryFor(input.delivery, input.locale);
   const totalMinor = subtotalMinor - coupon.discountMinor + delivery.minor;
   await decrementStock(lines);

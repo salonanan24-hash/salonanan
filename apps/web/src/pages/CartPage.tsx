@@ -84,7 +84,13 @@ export function CartPage() {
     } catch (error) {
       setCouponCode('');
       setDiscountMinor(0);
-      setCouponNote(error instanceof Error && error.message === 'coupon' ? messages.cart.couponMissing : messages.cart.couponFailed);
+      setCouponNote(
+        error instanceof Error && error.message === 'coupon_scope'
+          ? messages.cart.couponScope
+          : error instanceof Error && error.message === 'coupon'
+            ? messages.cart.couponMissing
+            : messages.cart.couponFailed,
+      );
     } finally {
       setPending(false);
     }

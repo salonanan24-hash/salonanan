@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import type { DemoProduct } from '@/data/catalog';
 import { useI18n } from '@/i18n';
 import { SectionHeader } from '@/components/ui/SectionHeader';
@@ -12,10 +12,12 @@ type ProductCarouselProps = {
   href?: string;
   actionLabel?: string;
   headingId?: string;
-  perRow?: 5 | 6;
+  perRow?: 4 | 5 | 6;
+  aside?: ReactNode;
 };
 
 const cardWidth = {
+  4: 'w-[calc((100cqw-0.75rem)/2)] md:w-[calc((100cqw-1.5rem)/3)] lg:w-[calc((100cqw-3rem)/4)] xl:w-[calc((100cqw-4rem)/4.5)] retail:w-[calc((100cqw-4rem)/4.5)]',
   5: 'w-[calc((100cqw-0.75rem)/2)] md:w-[calc((100cqw-1.5rem)/3)] lg:w-[calc((100cqw-3rem)/4)] xl:w-[calc((100cqw-4rem)/5)] retail:w-[calc((100cqw-4rem)/5)]',
   6: 'w-[calc((100cqw-0.75rem)/2)] md:w-[calc((100cqw-1.5rem)/3)] lg:w-[calc((100cqw-3rem)/4)] xl:w-[calc((100cqw-5rem)/6)] retail:w-[calc((100cqw-5rem)/6)]',
 } as const;
@@ -47,6 +49,7 @@ export function ProductCarousel({
   actionLabel,
   headingId,
   perRow = 5,
+  aside,
 }: ProductCarouselProps) {
   const { messages } = useI18n();
   const scrollerId = `product-carousel-${useId().replaceAll(':', '')}`;
@@ -226,33 +229,36 @@ export function ProductCarousel({
           ) : null
         }
       />
-      <div
-        id={scrollerId}
-        ref={scrollerRef}
-        tabIndex={showArrows ? 0 : undefined}
-        onKeyDown={onKeyDown}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-        onDragStart={(event) => event.preventDefault()}
-        className={`@container cursor-grab touch-pan-y overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
-          dragging ? 'cursor-grabbing snap-none' : 'snap-x snap-mandatory scroll-smooth'
-        }`}
-      >
-        <ul className="flex w-max gap-3 lg:gap-4">
-          {products.map((product, index) => (
-            <li
-              key={product.id}
-              ref={(node) => {
-                itemRefs.current[index] = node;
-              }}
-              className={`shrink-0 snap-start ${cardWidth[perRow]}`}
-            >
-              <ProductCard product={product} />
-            </li>
-          ))}
-        </ul>
+      <div className={aside ? 'flex flex-col-reverse gap-4 xl:grid xl:grid-cols-[minmax(0,1fr)_380px] xl:items-stretch' : undefined}>
+        <div
+          id={scrollerId}
+          ref={scrollerRef}
+          tabIndex={showArrows ? 0 : undefined}
+          onKeyDown={onKeyDown}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+          onDragStart={(event) => event.preventDefault()}
+          className={`@container min-w-0 cursor-grab touch-pan-y overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+            dragging ? 'cursor-grabbing snap-none' : 'snap-x snap-mandatory scroll-smooth'
+          }`}
+        >
+          <ul className="flex w-max gap-3 lg:gap-4">
+            {products.map((product, index) => (
+              <li
+                key={product.id}
+                ref={(node) => {
+                  itemRefs.current[index] = node;
+                }}
+                className={`shrink-0 snap-start ${cardWidth[perRow]}`}
+              >
+                <ProductCard product={product} />
+              </li>
+            ))}
+          </ul>
+        </div>
+        {aside ? <div className="min-h-0 xl:h-full">{aside}</div> : null}
       </div>
     </section>
   );

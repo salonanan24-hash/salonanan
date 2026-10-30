@@ -68,12 +68,19 @@ export type AdminProduct = {
 
 export type CouponKind = 'percent' | 'fixed';
 
+export type CouponScope = 'site' | 'category' | 'subcategory' | 'products' | 'brand';
+
 export type AdminCoupon = {
   id: string;
   code: string;
   kind: CouponKind;
   value: number;
   endsAt: string;
+  scope: CouponScope;
+  categoryId: string;
+  subcategoryId: string;
+  brandId: string;
+  productIds: string[];
 };
 
 export type ShippingZone = {

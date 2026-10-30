@@ -146,7 +146,11 @@ export function CheckoutPage() {
             ? copy.addressMissing
             : code === 'zone'
               ? copy.zoneMissing
-              : copy.failed,
+              : code === 'coupon_scope'
+                ? messages.cart.couponScope
+                : code === 'coupon'
+                  ? messages.cart.couponMissing
+                  : copy.failed,
       );
     } finally {
       setPending(false);

@@ -2,31 +2,58 @@ import { Plus, Trash2, X } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { adminAccents, resolveAccent, type AccentId } from '@/admin/accent';
 import { nid, useAdminStore } from '@/admin/store';
-import type { CouponKind, ShippingZone } from '@/admin/types';
+import type { AdminCoupon, CouponKind, CouponScope, ShippingZone } from '@/admin/types';
 import { Field, GhostButton, IconButton, PageHeader, Panel, PrimaryButton, SelectInput, Split, TextInput } from '@/admin/ui';
 import { fill, useI18n } from '@/i18n';
 
+function couponTarget(coupon: AdminCoupon, copy: { site: string; category: string; subcategory: string; products: string; brand: string; chosen: string }, label: string) {
+  const scope = coupon.scope ?? 'site';
+  if (scope === 'site') return copy.site;
+  if (scope === 'products') return fill(copy.chosen, { count: coupon.productIds?.length ?? 0 });
+  return label || (scope === 'category' ? copy.category : scope === 'subcategory' ? copy.subcategory : copy.brand);
+}
+
 export function CouponsPage() {
-  const { messages } = useI18n();
+  const { locale, messages } = useI18n();
   const copy = messages.desk.coupons;
   const coupons = useAdminStore((state) => state.coupons);
+  const categories = useAdminStore((state) => state.categories);
+  const brands = useAdminStore((state) => state.brands);
+  const products = useAdminStore((state) => state.products);
   const saveCoupon = useAdminStore((state) => state.saveCoupon);
   const removeCoupon = useAdminStore((state) => state.removeCoupon);
   const [code, setCode] = useState('');
   const [kind, setKind] = useState<CouponKind>('percent');
   const [value, setValue] = useState('');
   const [endsAt, setEndsAt] = useState('');
+  const [scope, setScope] = useState<CouponScope>('site');
+  const [categoryId, setCategoryId] = useState('');
+  const [subcategoryId, setSubcategoryId] = useState('');
+  const [brandId, setBrandId] = useState('');
+  const [productIds, setProductIds] = useState<string[]>([]);
+  const [query, setQuery] = useState('');
   const [error, setError] = useState('');
+  const subcategories = categories.find((category) => category.id === categoryId)?.subcategories ?? [];
+  const needle = query.trim().toLocaleLowerCase();
+  const choices = products.filter((product) => {
+    if (!needle) return true;
+    return product.name.he.toLocaleLowerCase().includes(needle) || product.name.ar.toLocaleLowerCase().includes(needle);
+  });
 
   function onSubmit(event: FormEvent) {
     event.preventDefault();
     const amount = Number(value);
-    if (!code.trim() || !Number.isFinite(amount) || amount <= 0) {
+    if (!code.trim() || !Number.isFinite(amount) || amount <= 0 || (kind === 'percent' && amount > 100)) {
       setError(copy.invalid);
       return;
     }
-    if (kind === 'percent' && amount > 100) {
-      setError(copy.invalid);
+    if (
+      (scope === 'category' && !categoryId) ||
+      (scope === 'subcategory' && !subcategoryId) ||
+      (scope === 'brand' && !brandId) ||
+      (scope === 'products' && productIds.length === 0)
+    ) {
+      setError(copy.needTarget);
       return;
     }
     saveCoupon({
@@ -35,11 +62,22 @@ export function CouponsPage() {
       kind,
       value: kind === 'fixed' ? Math.round(amount * 100) : Math.round(amount),
       endsAt,
+      scope,
+      categoryId: scope === 'category' || scope === 'subcategory' ? categoryId : '',
+      subcategoryId: scope === 'subcategory' ? subcategoryId : '',
+      brandId: scope === 'brand' ? brandId : '',
+      productIds: scope === 'products' ? productIds : [],
     })
       .then(() => {
         setCode('');
         setValue('');
         setEndsAt('');
+        setScope('site');
+        setCategoryId('');
+        setSubcategoryId('');
+        setBrandId('');
+        setProductIds([]);
+        setQuery('');
         setError('');
       })
       .catch(() => setError(messages.desk.saveFailed));
@@ -52,20 +90,33 @@ export function CouponsPage() {
         list={
           <Panel className="divide-y divide-line p-0">
             {coupons.length === 0 ? <p className="px-4 py-8 text-center text-sm text-muted">{copy.empty}</p> : null}
-            {coupons.map((coupon) => (
-              <div key={coupon.id} className="flex items-center gap-3 px-4 py-3">
-                <div className="min-w-0 flex-1">
-                  <p className="font-bold">{coupon.code}</p>
-                  <p className="text-xs text-muted">
-                    {coupon.kind === 'percent' ? `${coupon.value}%` : `₪${coupon.value / 100}`}
-                    {coupon.endsAt ? ` · ${coupon.endsAt}` : ''}
-                  </p>
+            {coupons.map((coupon) => {
+              const category = categories.find((item) => item.id === coupon.categoryId);
+              const subcategory = category?.subcategories.find((item) => item.id === coupon.subcategoryId);
+              const brand = brands.find((item) => item.id === coupon.brandId);
+              const label =
+                coupon.scope === 'subcategory'
+                  ? [category?.name[locale], subcategory?.name[locale]].filter(Boolean).join(' · ')
+                  : coupon.scope === 'category'
+                    ? category?.name[locale] ?? ''
+                    : brand?.name ?? '';
+              return (
+                <div key={coupon.id} className="flex items-center gap-3 px-4 py-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-bold">{coupon.code}</p>
+                    <p className="text-xs text-muted">
+                      {coupon.kind === 'percent' ? `${coupon.value}%` : `₪${coupon.value / 100}`}
+                      {coupon.endsAt ? ` · ${coupon.endsAt}` : ''}
+                      {' · '}
+                      {couponTarget(coupon, copy, label)}
+                    </p>
+                  </div>
+                  <IconButton type="button" aria-label={copy.remove} onClick={() => void removeCoupon(coupon.id)}>
+                    <Trash2 className="size-3.5" aria-hidden="true" />
+                  </IconButton>
                 </div>
-                <IconButton type="button" aria-label={copy.remove} onClick={() => void removeCoupon(coupon.id)}>
-                  <Trash2 className="size-3.5" aria-hidden="true" />
-                </IconButton>
-              </div>
-            ))}
+              );
+            })}
           </Panel>
         }
         form={
@@ -87,6 +138,92 @@ export function CouponsPage() {
               <Field label={copy.ends} hint={copy.optional}>
                 <TextInput type="date" value={endsAt} onChange={(event) => setEndsAt(event.target.value)} />
               </Field>
+              <Field label={copy.scope}>
+                <SelectInput
+                  value={scope}
+                  onChange={(event) => {
+                    setScope(event.target.value as CouponScope);
+                    setError('');
+                  }}
+                >
+                  <option value="site">{copy.site}</option>
+                  <option value="category">{copy.category}</option>
+                  <option value="subcategory">{copy.subcategory}</option>
+                  <option value="products">{copy.products}</option>
+                  <option value="brand">{copy.brand}</option>
+                </SelectInput>
+              </Field>
+              {scope === 'category' || scope === 'subcategory' ? (
+                <Field label={copy.pickCategory}>
+                  <SelectInput
+                    value={categoryId}
+                    onChange={(event) => {
+                      setCategoryId(event.target.value);
+                      setSubcategoryId('');
+                    }}
+                  >
+                    <option value="">{copy.pickCategory}</option>
+                    {categories.map((category) => (
+                      <option key={category.id} value={category.id}>
+                        {category.name[locale]}
+                      </option>
+                    ))}
+                  </SelectInput>
+                </Field>
+              ) : null}
+              {scope === 'subcategory' ? (
+                <Field label={copy.pickSubcategory}>
+                  <SelectInput value={subcategoryId} onChange={(event) => setSubcategoryId(event.target.value)}>
+                    <option value="">{copy.pickSubcategory}</option>
+                    {subcategories.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name[locale]}
+                      </option>
+                    ))}
+                  </SelectInput>
+                </Field>
+              ) : null}
+              {scope === 'brand' ? (
+                <Field label={copy.pickBrand}>
+                  <SelectInput value={brandId} onChange={(event) => setBrandId(event.target.value)}>
+                    <option value="">{copy.pickBrand}</option>
+                    {brands.map((brand) => (
+                      <option key={brand.id} value={brand.id}>
+                        {brand.name}
+                      </option>
+                    ))}
+                  </SelectInput>
+                </Field>
+              ) : null}
+              {scope === 'products' ? (
+                <div>
+                  <Field label={copy.products}>
+                    <TextInput value={query} onChange={(event) => setQuery(event.target.value)} placeholder={copy.search} />
+                  </Field>
+                  <ul className="mt-2 max-h-56 space-y-1 overflow-auto rounded-xl border border-line p-2">
+                    {choices.map((product) => {
+                      const selected = productIds.includes(product.id);
+                      return (
+                        <li key={product.id}>
+                          <label className={`flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-sm ${selected ? 'bg-[#f4f7fb]' : ''}`}>
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={() =>
+                                setProductIds((current) =>
+                                  current.includes(product.id) ? current.filter((id) => id !== product.id) : [...current, product.id],
+                                )
+                              }
+                            />
+                            <span className="min-w-0 flex-1 font-semibold text-ink">{product.name[locale]}</span>
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <p className="mt-2 text-xs text-muted">{fill(copy.chosen, { count: productIds.length })}</p>
+                </div>
+              ) : null}
               {error ? <p className="text-sm font-semibold anan-accent-text">{error}</p> : null}
               <PrimaryButton type="submit" className="w-full">
                 {copy.save}

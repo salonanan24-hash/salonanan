@@ -27,6 +27,36 @@ const imageSchema = z.object({
   src: z.string().trim().min(1).max(2_000_000),
 });
 
+const couponScopeSchema = z.enum(['site', 'category', 'subcategory', 'products', 'brand']);
+
+export const couponInput = z
+  .object({
+    id: idSchema,
+    code: z.string().trim().min(1).max(40),
+    kind: z.enum(['percent', 'fixed']),
+    value: z.number().int().positive().max(10_000_000),
+    endsAt: z.string().max(40),
+    scope: couponScopeSchema.default('site'),
+    categoryId: z.string().trim().max(80).default(''),
+    subcategoryId: z.string().trim().max(80).default(''),
+    brandId: z.string().trim().max(80).default(''),
+    productIds: z.array(idSchema).max(200).default([]),
+  })
+  .superRefine((coupon, ctx) => {
+    if (coupon.scope === 'category' && !coupon.categoryId) {
+      ctx.addIssue({ code: 'custom', path: ['categoryId'], message: 'Choose a category' });
+    }
+    if (coupon.scope === 'subcategory' && !coupon.subcategoryId) {
+      ctx.addIssue({ code: 'custom', path: ['subcategoryId'], message: 'Choose a subcategory' });
+    }
+    if (coupon.scope === 'brand' && !coupon.brandId) {
+      ctx.addIssue({ code: 'custom', path: ['brandId'], message: 'Choose a brand' });
+    }
+    if (coupon.scope === 'products' && coupon.productIds.length === 0) {
+      ctx.addIssue({ code: 'custom', path: ['productIds'], message: 'Choose a product' });
+    }
+  });
+
 const specMap = z.record(z.string().max(8_000)).refine((value) => Object.keys(value).length <= 80);
 
 const variantSchema = z.object({
@@ -81,17 +111,7 @@ const catalogSchema = z.object({
     .max(80),
   brands: z.array(z.object({ id: idSchema, slug: slugSchema, name: textSchema, image: storedImage })).max(80),
   products: z.array(productSchema).max(200),
-  coupons: z
-    .array(
-      z.object({
-        id: idSchema,
-        code: z.string().trim().min(1).max(40),
-        kind: z.enum(['percent', 'fixed']),
-        value: z.number().int().positive().max(10_000_000),
-        endsAt: z.string().max(40),
-      }),
-    )
-    .max(100),
+  coupons: z.array(couponInput).max(100),
   settings: z.object({
     phone: z.string().trim().max(40),
     accent: z.string().trim().min(1).max(40),
@@ -147,7 +167,7 @@ export async function isCatalogEmpty(): Promise<boolean> {
 
 export async function readCatalog(): Promise<CatalogPayload> {
   const client = db();
-  const [categories, subcategories, fields, brands, products, specs, variants, variantSpecs, images, coupons, settings, zones] =
+  const [categories, subcategories, fields, brands, products, specs, variants, variantSpecs, images, coupons, couponProducts, settings, zones] =
     await Promise.all([
       client.from('categories').select('id, slug, name_he, name_ar, image_src, sort_order').order('sort_order'),
       client.from('subcategories').select('id, category_id, name_he, name_ar, image_src, sort_order').order('sort_order'),
@@ -158,12 +178,13 @@ export async function readCatalog(): Promise<CatalogPayload> {
       client.from('product_variants').select('id, product_id, color, color_hex, sku, price_minor, subcategory_id, stock, is_active, on_sale, in_packages, sort_order').order('sort_order'),
       client.from('variant_specs').select('variant_id, field_id, value, value_ar'),
       client.from('variant_images').select('id, variant_id, src, sort_order').order('sort_order'),
-      client.from('coupons').select('id, code, kind, value, ends_at, sort_order').order('sort_order'),
+      client.from('coupons').select('id, code, kind, value, ends_at, scope, category_id, subcategory_id, brand_id, sort_order').order('sort_order'),
+      client.from('coupon_products').select('coupon_id, product_id'),
       client.from('store_settings').select('phone, accent').eq('id', true).maybeSingle(),
       client.from('shipping_zones').select('id, name, name_ar, price_minor, is_active, sort_order').order('sort_order'),
     ]);
 
-  for (const result of [categories, subcategories, fields, brands, products, specs, variants, variantSpecs, images, coupons, settings, zones]) {
+  for (const result of [categories, subcategories, fields, brands, products, specs, variants, variantSpecs, images, coupons, couponProducts, settings, zones]) {
     check(result.error);
   }
 
@@ -237,6 +258,11 @@ export async function readCatalog(): Promise<CatalogPayload> {
       kind: coupon.kind as 'percent' | 'fixed',
       value: coupon.value,
       endsAt: coupon.ends_at,
+      scope: (coupon.scope ?? 'site') as 'site' | 'category' | 'subcategory' | 'products' | 'brand',
+      categoryId: coupon.category_id ?? '',
+      subcategoryId: coupon.subcategory_id ?? '',
+      brandId: coupon.brand_id ?? '',
+      productIds: (couponProducts.data ?? []).filter((row) => row.coupon_id === coupon.id).map((row) => row.product_id),
     })),
     settings: {
       phone: settings.data?.phone ?? '',
@@ -381,18 +407,13 @@ export async function importCatalog(input: CatalogPayload): Promise<CatalogPaylo
   if (input.coupons.length > 0) {
     check(
       (
-        await client.from('coupons').insert(
-          input.coupons.map((coupon, index) => ({
-            id: coupon.id,
-            code: coupon.code,
-            kind: coupon.kind,
-            value: coupon.value,
-            ends_at: coupon.endsAt,
-            sort_order: index,
-          })),
-        )
+        await client.from('coupons').insert(input.coupons.map((coupon, index) => couponRow(coupon, index)))
       ).error,
     );
+    const links = input.coupons.flatMap((coupon) =>
+      coupon.scope === 'products' ? coupon.productIds.map((productId) => ({ coupon_id: coupon.id, product_id: productId })) : [],
+    );
+    if (links.length > 0) check((await client.from('coupon_products').insert(links)).error);
   }
 
   await writeSettings(input.settings);
@@ -646,26 +667,34 @@ export async function deleteProduct(id: string) {
   check(error);
 }
 
-export const couponInput = z.object({
-  id: idSchema,
-  code: z.string().trim().min(1).max(40),
-  kind: z.enum(['percent', 'fixed']),
-  value: z.number().int().positive().max(10_000_000),
-  endsAt: z.string().max(40),
-});
+function couponRow(coupon: z.infer<typeof couponInput>, sortOrder: number) {
+  return {
+    id: coupon.id,
+    code: coupon.code.toUpperCase(),
+    kind: coupon.kind,
+    value: coupon.value,
+    ends_at: coupon.endsAt,
+    scope: coupon.scope,
+    category_id: coupon.scope === 'category' || coupon.scope === 'subcategory' ? coupon.categoryId || null : null,
+    subcategory_id: coupon.scope === 'subcategory' ? coupon.subcategoryId || null : null,
+    brand_id: coupon.scope === 'brand' ? coupon.brandId || null : null,
+    sort_order: sortOrder,
+  };
+}
 
 export async function saveCoupon(input: z.infer<typeof couponInput>) {
   const existing = await db().from('coupons').select('sort_order').eq('id', input.id).maybeSingle();
   check(existing.error);
-  const { error } = await db().from('coupons').upsert({
-    id: input.id,
-    code: input.code.toUpperCase(),
-    kind: input.kind,
-    value: input.value,
-    ends_at: input.endsAt,
-    sort_order: existing.data?.sort_order ?? (await nextSort('coupons')),
-  });
+  const { error } = await db().from('coupons').upsert(couponRow(input, existing.data?.sort_order ?? (await nextSort('coupons'))));
   check(error);
+  const cleared = await db().from('coupon_products').delete().eq('coupon_id', input.id);
+  check(cleared.error);
+  if (input.scope === 'products' && input.productIds.length > 0) {
+    const linked = await db().from('coupon_products').insert(
+      input.productIds.map((productId) => ({ coupon_id: input.id, product_id: productId })),
+    );
+    check(linked.error);
+  }
 }
 
 export async function deleteCoupon(id: string) {

@@ -13,7 +13,7 @@ import { primaryImage, type StoreCatalog } from '@/data/catalog';
 const ROTATE_MS = 5000;
 const apiUrl = apiBase();
 
-type TargetKind = 'none' | 'category' | 'subcategory' | 'brand' | 'product' | 'package';
+export type TargetKind = 'none' | 'category' | 'subcategory' | 'brand' | 'product' | 'package';
 
 type HomeAd = {
   id: string;
@@ -615,7 +615,7 @@ function AdEditor({
 
 const choiceLimit = 40;
 
-function TargetPicker({
+export function TargetPicker({
   kind,
   value,
   catalog,
@@ -827,7 +827,7 @@ function targetOptions(
   return packages.map((item) => ({ value: item.id, label: item.name[locale] || item.name.he }));
 }
 
-function adHref(ad: HomeAd, catalog: StoreCatalog, packages: StorePackage[]): string | null {
+export function adHref(ad: Pick<HomeAd, 'targetKind' | 'targetRef'>, catalog: StoreCatalog, packages: StorePackage[]): string | null {
   if (ad.targetKind === 'none' || !ad.targetRef) return null;
   if (ad.targetKind === 'category') {
     const category = catalog.categories.find((item) => item.slug === ad.targetRef || item.id === ad.targetRef);

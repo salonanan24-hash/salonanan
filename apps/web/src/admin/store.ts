@@ -96,7 +96,14 @@ function readLocalAdmin(): AdminData | null {
       categories: state.categories ?? [],
       brands: state.brands ?? [],
       products: state.products ?? [],
-      coupons: state.coupons ?? [],
+      coupons: (state.coupons ?? []).map((coupon) => ({
+        ...coupon,
+        scope: coupon.scope ?? 'site',
+        categoryId: coupon.categoryId ?? '',
+        subcategoryId: coupon.subcategoryId ?? '',
+        brandId: coupon.brandId ?? '',
+        productIds: coupon.productIds ?? [],
+      })),
       settings: {
         phone: state.settings?.phone ?? '',
         zones: state.settings?.zones ?? [],
