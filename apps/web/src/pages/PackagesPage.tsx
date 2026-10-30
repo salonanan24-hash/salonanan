@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { primaryImage, productById, productOptions } from '@/data/catalog';
 import { useDevelopmentCatalog } from '@/hooks/use-catalog';
+import { HomeAds } from '@/components/home/HomeAds';
 import { ProductGrid } from '@/components/product/ProductGrid';
 import { usePageTitle } from '@/hooks/use-page-title';
 import { useI18n } from '@/i18n';
@@ -43,7 +44,8 @@ export function PackagesPage() {
 
   return (
     <Container className="py-8">
-      <h1 className="text-3xl font-extrabold text-ink">{copy.title}</h1>
+      <HomeAds placement="packages" />
+      <h1 className="mt-8 text-3xl font-extrabold text-ink">{copy.title}</h1>
       <p className="mt-2 text-sm text-muted">{copy.note}</p>
       {packages === null ? <p className="mt-8 text-sm text-muted">{messages.common.loading}</p> : null}
       {packages?.length === 0 && marked.length === 0 ? <p className="mt-8 text-sm text-ink">{copy.empty}</p> : null}

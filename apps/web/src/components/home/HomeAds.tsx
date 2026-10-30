@@ -29,7 +29,7 @@ type StorePackage = {
 
 const kinds: TargetKind[] = ['none', 'category', 'subcategory', 'brand', 'product', 'package'];
 
-export function HomeAds({ placement = 'hero' }: { placement?: 'hero' | 'square' }) {
+export function HomeAds({ placement = 'hero' }: { placement?: 'hero' | 'square' | 'packages' }) {
   const { messages } = useI18n();
   const copy = messages.home.ads;
   const auth = useAuth();
@@ -58,7 +58,7 @@ export function HomeAds({ placement = 'hero' }: { placement?: 'hero' | 'square' 
 
   useEffect(() => {
     let active = true;
-    const query = square ? '?placement=square' : '';
+    const query = placement === 'hero' ? '' : `?placement=${placement}`;
     fetch(`${apiUrl}/api/home-ads${query}`, { cache: 'no-store' })
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error('ads'))))
       .then((body: { ads: HomeAd[] }) => {
@@ -70,7 +70,7 @@ export function HomeAds({ placement = 'hero' }: { placement?: 'hero' | 'square' 
     return () => {
       active = false;
     };
-  }, [square]);
+  }, [placement]);
 
   const count = ads?.length ?? 0;
   const packageAds = ads?.some((ad) => ad.targetKind === 'package') ?? false;
@@ -468,7 +468,7 @@ function AdEditor({
 }: {
   initial: HomeAd[];
   catalog: StoreCatalog;
-  placement: 'hero' | 'square';
+  placement: 'hero' | 'square' | 'packages';
   onClose: () => void;
   onSaved: (ads: HomeAd[]) => void;
 }) {

@@ -4,7 +4,7 @@ import { AppError } from '../errors/app-error.js';
 import { getSupabaseAdmin, isSupabaseConfigured } from '../lib/supabase.js';
 
 const targetKind = z.enum(['none', 'category', 'subcategory', 'brand', 'product', 'package']);
-const placementSchema = z.enum(['hero', 'square', 'section']);
+const placementSchema = z.enum(['hero', 'square', 'section', 'packages']);
 export const sectionKeys = ['featured', 'fridges', 'laundry', 'entertainment', 'tech', 'kitchen'] as const;
 const sectionSchema = z.enum(sectionKeys);
 const layoutSchema = z.enum(['above', 'beside']);

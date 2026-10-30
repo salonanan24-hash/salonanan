@@ -8,7 +8,7 @@ export const homeAdsRouter = Router();
 homeAdsRouter.get(
   '/',
   wrap(async (req, res) => {
-    const placement = z.enum(['hero', 'square', 'section']).catch('hero').parse(req.query.placement);
+    const placement = z.enum(['hero', 'square', 'section', 'packages']).catch('hero').parse(req.query.placement);
     res.json({ ads: await listHomeAds(placement) });
   }),
 );
