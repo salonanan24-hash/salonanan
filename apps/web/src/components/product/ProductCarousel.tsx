@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import type { DemoProduct } from '@/data/catalog';
 import { useI18n } from '@/i18n';
 import { SectionHeader } from '@/components/ui/SectionHeader';
@@ -15,15 +15,7 @@ type ProductCarouselProps = {
 };
 
 const cardWidth =
-  'w-[calc((100cqw-0.75rem)/2)] md:w-[calc((100cqw-1.5rem)/3)] lg:w-[calc((100cqw-3rem)/4)] xl:w-[calc((100cqw-4rem)/5)] retail:w-[calc((100cqw-4rem)/5)]';
-
-function visibleCount(): number {
-  if (window.matchMedia('(min-width: 1440px)').matches) return 5;
-  if (window.matchMedia('(min-width: 1280px)').matches) return 5;
-  if (window.matchMedia('(min-width: 1024px)').matches) return 4;
-  if (window.matchMedia('(min-width: 768px)').matches) return 3;
-  return 2;
-}
+  'w-[calc((100cqw-0.75rem)/2)] md:w-[calc((100cqw-1.5rem)/3)] lg:w-[calc((100cqw-3rem)/4)] xl:w-[calc((100cqw-5rem)/6)] retail:w-[calc((100cqw-5rem)/6)]';
 
 function motion(): ScrollBehavior {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
@@ -56,7 +48,9 @@ export function ProductCarousel({
   const scrollerId = `product-carousel-${useId().replaceAll(':', '')}`;
   const scrollerRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Array<HTMLLIElement | null>>([]);
+  const dragRef = useRef<{ pointerId: number; x: number; y: number; moved: boolean } | null>(null);
   const [edges, setEdges] = useState({ prev: false, next: false });
+  const [dragging, setDragging] = useState(false);
 
   const measure = useCallback(() => {
     const root = scrollerRef.current;
@@ -122,14 +116,11 @@ export function ProductCarousel({
   function scrollByPage(direction: 1 | -1) {
     const root = scrollerRef.current;
     if (!root) return;
-    const page = visibleCount();
     const current = firstVisibleIndex();
-    const target = Math.max(0, Math.min(products.length - 1, current + direction * page));
+    const target = Math.max(0, Math.min(products.length - 1, current + direction));
     const element = itemRefs.current[target];
     if (!element) return;
-    const remaining = products.length - target;
-    const edge = direction > 0 && remaining < page ? 'end' : 'start';
-    alignCard(root, element, edge);
+    alignCard(root, element, 'start');
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -149,6 +140,49 @@ export function ProductCarousel({
       const last = itemRefs.current[products.length - 1];
       if (last && scrollerRef.current) alignCard(scrollerRef.current, last, 'end');
     }
+  }
+
+  function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return;
+    if ((event.target as HTMLElement).closest('button')) return;
+    dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
+  }
+
+  function onPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    const node = event.currentTarget;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const dx = event.clientX - drag.x;
+    const dy = event.clientY - drag.y;
+    if (!drag.moved) {
+      if (Math.abs(dx) < 8 || Math.abs(dx) <= Math.abs(dy)) return;
+      drag.moved = true;
+      setDragging(true);
+      node.setPointerCapture(event.pointerId);
+      node.style.scrollBehavior = 'auto';
+      node.style.scrollSnapType = 'none';
+    }
+    drag.x = event.clientX;
+    drag.y = event.clientY;
+    node.scrollBy({ left: -dx });
+  }
+
+  function endDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+    dragRef.current = null;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const node = event.currentTarget;
+    if (node.hasPointerCapture(event.pointerId)) node.releasePointerCapture(event.pointerId);
+    node.style.scrollBehavior = '';
+    node.style.scrollSnapType = '';
+    setDragging(false);
+    if (!drag.moved) return;
+    const stopClick = (clickEvent: MouseEvent) => {
+      clickEvent.preventDefault();
+      clickEvent.stopPropagation();
+      node.removeEventListener('click', stopClick, true);
+    };
+    node.addEventListener('click', stopClick, true);
   }
 
   const showArrows = edges.prev || edges.next;
@@ -193,7 +227,14 @@ export function ProductCarousel({
         ref={scrollerRef}
         tabIndex={showArrows ? 0 : undefined}
         onKeyDown={onKeyDown}
-        className="@container snap-x snap-mandatory overflow-x-auto overscroll-x-contain scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onDragStart={(event) => event.preventDefault()}
+        className={`@container cursor-grab touch-pan-y overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+          dragging ? 'cursor-grabbing snap-none' : 'snap-x snap-mandatory scroll-smooth'
+        }`}
       >
         <ul className="flex w-max gap-3 lg:gap-4">
           {products.map((product, index) => (

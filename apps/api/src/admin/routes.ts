@@ -259,7 +259,8 @@ adminRouter.delete(
 adminRouter.put(
   '/home-ads',
   wrap(async (req, res) => {
-    await replaceHomeAds(homeAdsInput.parse(req.body).ads);
+    const body = homeAdsInput.parse(req.body);
+    await replaceHomeAds(body.ads, body.placement);
     res.json({ ok: true });
   }),
 );

@@ -2,7 +2,7 @@ import { isAdminEmail } from '@anan/shared';
 import { ChevronLeft, ChevronRight, Pencil } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { readResizedImages } from '@/admin/images';
+import { readResizedImages, readSquareImage } from '@/admin/images';
 import { adminRequest } from '@/admin/remote';
 import { useAuth } from '@/auth/auth-context';
 import { useDevelopmentCatalog } from '@/hooks/use-catalog';
@@ -29,7 +29,7 @@ type StorePackage = {
 
 const kinds: TargetKind[] = ['none', 'category', 'subcategory', 'brand', 'product', 'package'];
 
-export function HomeAds() {
+export function HomeAds({ placement = 'hero' }: { placement?: 'hero' | 'square' }) {
   const { messages } = useI18n();
   const copy = messages.home.ads;
   const auth = useAuth();
@@ -44,12 +44,22 @@ export function HomeAds() {
   const [rtl, setRtl] = useState(() => document.documentElement.dir !== 'ltr');
   const [pos, setPos] = useState(0);
   const [motion, setMotion] = useState(true);
+  const [columns, setColumns] = useState(() => (window.matchMedia('(min-width: 1024px)').matches ? 3 : 1));
+  const [reduceMotion, setReduceMotion] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
   const posRef = useRef(0);
   const goRef = useRef<(delta: number) => void>(() => {});
+  const reelPausedRef = useRef(false);
+  const reelHoldingRef = useRef(false);
+  const reelResumeRef = useRef<number | null>(null);
+  const reelStepTimerRef = useRef<number | null>(null);
+  const reelStepFrameRef = useRef<number | null>(null);
+  const reelKickRef = useRef<() => void>(() => {});
+  const square = placement === 'square';
 
   useEffect(() => {
     let active = true;
-    fetch(`${apiUrl}/api/home-ads`, { cache: 'no-store' })
+    const query = square ? '?placement=square' : '';
+    fetch(`${apiUrl}/api/home-ads${query}`, { cache: 'no-store' })
       .then((response) => (response.ok ? response.json() : Promise.reject(new Error('ads'))))
       .then((body: { ads: HomeAd[] }) => {
         if (active) setAds(Array.isArray(body.ads) ? body.ads : []);
@@ -60,7 +70,7 @@ export function HomeAds() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [square]);
 
   const count = ads?.length ?? 0;
   const packageAds = ads?.some((ad) => ad.targetKind === 'package') ?? false;
@@ -81,16 +91,33 @@ export function HomeAds() {
     };
   }, [packageAds]);
 
-  const visible = 1;
-  const loop = count > 1;
+  const visible = square ? columns : 1;
+  const loop = count > visible;
+  const reel = square && columns === 1 && loop && !reduceMotion && !editing;
+
+  useLayoutEffect(() => {
+    const media = window.matchMedia('(min-width: 1024px)');
+    const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const apply = () => {
+      setColumns(square && media.matches ? 3 : 1);
+      setReduceMotion(motion.matches);
+    };
+    apply();
+    media.addEventListener('change', apply);
+    motion.addEventListener('change', apply);
+    return () => {
+      media.removeEventListener('change', apply);
+      motion.removeEventListener('change', apply);
+    };
+  }, [square]);
   const lead = loop ? visible : 0;
 
   useEffect(() => {
-    if (paused || editing || count < 2) return;
+    if (!loop || paused || editing || reel) return;
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const timer = window.setInterval(() => goRef.current(-1), ROTATE_MS);
     return () => window.clearInterval(timer);
-  }, [paused, editing, count]);
+  }, [loop, paused, editing, reel]);
 
   useEffect(() => {
     if (!loop || (pos >= lead && pos < lead + count)) return;
@@ -134,7 +161,131 @@ export function HomeAds() {
     const observer = new ResizeObserver(measure);
     observer.observe(node);
     return () => observer.disconnect();
-  }, [count, editing]);
+  }, [count, editing, reel]);
+
+  useEffect(() => {
+    const node = viewportRef.current;
+    if (!node || !reel || viewportWidth <= 0 || !ads) return;
+    const gap = 12;
+    const stepWidth = viewportWidth + gap;
+    const group = ads.length * stepWidth;
+    if (node.scrollLeft < group) node.scrollLeft = group;
+    node.scrollLeft = group + Math.round((node.scrollLeft - group) / stepWidth) * stepWidth;
+
+    let stopped = false;
+
+    const normalize = () => {
+      if (group <= 0) return;
+      while (node.scrollLeft >= group * 2) node.scrollLeft -= group;
+      while (node.scrollLeft < group) node.scrollLeft += group;
+    };
+
+    const clearMotion = () => {
+      if (reelStepTimerRef.current !== null) {
+        window.clearTimeout(reelStepTimerRef.current);
+        reelStepTimerRef.current = null;
+      }
+      if (reelStepFrameRef.current !== null) {
+        window.cancelAnimationFrame(reelStepFrameRef.current);
+        reelStepFrameRef.current = null;
+      }
+    };
+
+    const schedule = () => {
+      if (stopped || reelPausedRef.current) return;
+      clearMotion();
+      reelStepTimerRef.current = window.setTimeout(run, 2000);
+    };
+
+    const glide = (to: number, done: () => void) => {
+      const from = node.scrollLeft;
+      const start = performance.now();
+      const tick = (now: number) => {
+        if (stopped || reelPausedRef.current) return;
+        const t = Math.min(1, (now - start) / 650);
+        const eased = 1 - (1 - t) ** 3;
+        node.scrollLeft = from + (to - from) * eased;
+        if (t < 1) {
+          reelStepFrameRef.current = window.requestAnimationFrame(tick);
+          return;
+        }
+        reelStepFrameRef.current = null;
+        normalize();
+        done();
+      };
+      reelStepFrameRef.current = window.requestAnimationFrame(tick);
+    };
+
+    const run = () => {
+      if (stopped || reelPausedRef.current) return;
+      glide(node.scrollLeft + stepWidth, schedule);
+    };
+
+    const settle = () => {
+      if (stopped || reelPausedRef.current) return;
+      clearMotion();
+      normalize();
+      const aligned = group + Math.round((node.scrollLeft - group) / stepWidth) * stepWidth;
+      if (Math.abs(node.scrollLeft - aligned) < 1) {
+        schedule();
+        return;
+      }
+      glide(aligned, schedule);
+    };
+
+    reelKickRef.current = settle;
+    schedule();
+
+    const onScroll = () => {
+      if (reelPausedRef.current) normalize();
+    };
+    node.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      stopped = true;
+      clearMotion();
+      reelKickRef.current = () => {};
+      node.removeEventListener('scroll', onScroll);
+    };
+  }, [reel, viewportWidth, ads]);
+
+  useEffect(() => {
+    if (!reel) return;
+    const release = () => {
+      if (!reelHoldingRef.current) return;
+      reelHoldingRef.current = false;
+      if (reelResumeRef.current !== null) window.clearTimeout(reelResumeRef.current);
+      reelResumeRef.current = window.setTimeout(() => {
+        reelPausedRef.current = false;
+        reelResumeRef.current = null;
+        reelKickRef.current();
+      }, 3000);
+    };
+    window.addEventListener('pointerup', release);
+    window.addEventListener('touchend', release);
+    return () => {
+      window.removeEventListener('pointerup', release);
+      window.removeEventListener('touchend', release);
+      if (reelResumeRef.current !== null) window.clearTimeout(reelResumeRef.current);
+    };
+  }, [reel]);
+
+  function holdReel() {
+    if (!reel) return;
+    reelHoldingRef.current = true;
+    reelPausedRef.current = true;
+    if (reelResumeRef.current !== null) {
+      window.clearTimeout(reelResumeRef.current);
+      reelResumeRef.current = null;
+    }
+    if (reelStepTimerRef.current !== null) {
+      window.clearTimeout(reelStepTimerRef.current);
+      reelStepTimerRef.current = null;
+    }
+    if (reelStepFrameRef.current !== null) {
+      window.cancelAnimationFrame(reelStepFrameRef.current);
+      reelStepFrameRef.current = null;
+    }
+  }
 
   if (ads === null) return <div className="min-h-56" aria-hidden="true" />;
   if (ads.length === 0 && !admin) return null;
@@ -192,9 +343,10 @@ export function HomeAds() {
         </div>
       ) : null}
       {editing ? (
-        <AdEditor
+          <AdEditor
           initial={ads}
           catalog={catalog}
+          placement={placement}
           onClose={() => setEditing(false)}
           onSaved={(next) => {
             setAds(next);
@@ -202,10 +354,33 @@ export function HomeAds() {
           }}
         />
       ) : null}
-      {count > 0 ? (
+      {count > 0 && reel ? (
+        <div
+          ref={viewportRef}
+          dir="ltr"
+          onPointerDown={holdReel}
+          className="overflow-x-auto overflow-y-hidden overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        >
+          <div className="flex w-max flex-nowrap">
+            {[0, 1, 2].map((copy) => (
+              <div key={copy} className="flex shrink-0" aria-hidden={copy === 1 ? undefined : true}>
+                {ads.map((ad) => (
+                  <div
+                    key={ad.id}
+                    className="shrink-0"
+                    style={viewportWidth > 0 ? { width: viewportWidth, marginRight: 12 } : undefined}
+                  >
+                    <AdSlide ad={ad} catalog={catalog} packages={packages} square />
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : count > 0 ? (
         <>
           <div ref={viewportRef} className="relative overflow-hidden">
-            {count > 1 ? (
+            {loop ? (
               <>
                 <button
                   type="button"
@@ -236,14 +411,17 @@ export function HomeAds() {
             >
               {extended.map((ad, itemIndex) => (
                 <div key={`${ad.id}-${itemIndex}`} className="flex shrink-0 justify-center" style={{ width: slideWidth || '100%' }}>
-                  <AdSlide ad={ad} catalog={catalog} packages={packages} />
+                  <AdSlide ad={ad} catalog={catalog} packages={packages} square={square} />
                 </div>
               ))}
             </div>
           </div>
         </>
       ) : admin ? (
-        <p className="rounded-2xl border border-dashed border-line px-4 py-8 text-center text-sm text-muted">{copy.empty}</p>
+        <p className="rounded-2xl border border-dashed border-line px-4 py-8 text-center text-sm text-muted">
+          {copy.empty}
+          {square ? <span className="mt-1 block">{copy.squareSize}</span> : null}
+        </p>
       ) : null}
     </section>
   );
@@ -253,17 +431,25 @@ function AdSlide({
   ad,
   catalog,
   packages,
+  square,
 }: {
   ad: HomeAd;
   catalog: StoreCatalog;
   packages: StorePackage[];
+  square: boolean;
 }) {
   const { locale, messages } = useI18n();
   const href = adHref(ad, catalog, packages);
   const label = adLabel(ad, catalog, packages, locale) || messages.home.ads.slide;
-  const className = 'relative block w-full overflow-hidden rounded-2xl bg-[#f6f8fb] xl:h-80';
+  const className = square
+    ? 'relative block aspect-square w-full overflow-hidden rounded-2xl bg-[#f6f8fb]'
+    : 'relative block w-full overflow-hidden rounded-2xl bg-[#f6f8fb] xl:h-80';
   const image = (
-    <img src={ad.image} alt={label} className="block h-auto w-full xl:absolute xl:inset-0 xl:h-full xl:object-cover" />
+    <img
+      src={ad.image}
+      alt={label}
+      className={square ? 'absolute inset-0 h-full w-full object-cover' : 'block h-auto w-full xl:absolute xl:inset-0 xl:h-full xl:object-cover'}
+    />
   );
   if (!href) return <div className={className}>{image}</div>;
   return (
@@ -276,11 +462,13 @@ function AdSlide({
 function AdEditor({
   initial,
   catalog,
+  placement,
   onClose,
   onSaved,
 }: {
   initial: HomeAd[];
   catalog: StoreCatalog;
+  placement: 'hero' | 'square';
   onClose: () => void;
   onSaved: (ads: HomeAd[]) => void;
 }) {
@@ -314,6 +502,7 @@ function AdEditor({
       await adminRequest('/api/admin/home-ads', {
         method: 'PUT',
         body: JSON.stringify({
+          placement,
           ads: draft.map((ad) =>
             ad.targetRef && ad.targetKind !== 'none' ? ad : { ...ad, targetKind: 'none', targetRef: '' },
           ),
@@ -332,10 +521,17 @@ function AdEditor({
 
   return (
     <div className="mb-3 rounded-2xl border border-line bg-white p-4">
+      {placement === 'square' ? <p className="mb-3 text-xs leading-5 text-muted">{copy.squareSize}</p> : null}
       <ul className="space-y-4">
         {draft.map((ad) => (
             <li key={ad.id} className="rounded-xl border border-line p-3">
-              {ad.image ? <img src={ad.image} alt="" className="mb-3 h-28 w-full rounded-lg object-cover" /> : null}
+              {ad.image ? (
+                <img
+                  src={ad.image}
+                  alt=""
+                  className={placement === 'square' ? 'mb-3 aspect-square w-28 rounded-lg object-cover' : 'mb-3 h-28 w-full rounded-lg object-cover'}
+                />
+              ) : null}
               <div className="flex flex-wrap items-center gap-2">
                 <label className="inline-flex h-10 cursor-pointer items-center rounded-lg border border-dashed border-line px-3 text-xs font-semibold text-muted">
                   {ad.image ? copy.replace : copy.image}
@@ -347,7 +543,8 @@ function AdEditor({
                       const file = event.target.files?.[0];
                       event.target.value = '';
                       if (!file) return;
-                      void readResizedImages([file], 1400).then(([src]) => {
+                      const read = placement === 'square' ? readSquareImage(file) : readResizedImages([file], 1400).then(([src]) => src);
+                      void Promise.resolve(read).then((src) => {
                         if (src) update(ad.id, { image: src });
                       });
                     }}
@@ -388,13 +585,14 @@ function AdEditor({
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button
           type="button"
+          disabled={draft.length >= 12}
           onClick={() => {
             setDraft((current) => [
               ...current,
               { id: `ad-${Math.random().toString(36).slice(2, 10)}`, image: '', targetKind: 'none', targetRef: '' },
             ]);
           }}
-          className="inline-flex h-10 items-center rounded-lg border border-line px-3 text-sm font-bold text-ink"
+          className="inline-flex h-10 items-center rounded-lg border border-line px-3 text-sm font-bold text-ink disabled:opacity-50"
         >
           {copy.add}
         </button>

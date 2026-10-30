@@ -39,6 +39,7 @@ export function ProductImage({
       loading={priority ? 'eager' : 'lazy'}
       fetchPriority={priority ? 'high' : 'auto'}
       decoding="async"
+      draggable={false}
       onError={() => {
         if (current !== FALLBACK) setCurrent(FALLBACK);
         else setUseArt(true);

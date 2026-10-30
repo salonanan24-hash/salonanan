@@ -27,7 +27,8 @@ export const homeAdsInput = z.object({
         targetRef,
       }),
     )
-    .max(8),
+    .max(12),
+  placement: z.enum(['hero', 'square']).default('hero'),
 });
 
 export type HomeAd = {
@@ -63,10 +64,11 @@ function isSafeImage(value: string): boolean {
   }
 }
 
-export async function listHomeAds(): Promise<HomeAd[]> {
+export async function listHomeAds(placement: 'hero' | 'square' = 'hero'): Promise<HomeAd[]> {
   const result = await db()
     .from('home_ads')
-    .select('id, image_src, target_kind, target_ref, sort_order')
+    .select('id, image_src, target_kind, target_ref, sort_order, placement')
+    .eq('placement', placement)
     .order('sort_order');
   fail(result.error);
   return (result.data ?? []).map((row) => {
@@ -81,9 +83,9 @@ export async function listHomeAds(): Promise<HomeAd[]> {
   });
 }
 
-export async function replaceHomeAds(ads: HomeAd[]): Promise<void> {
+export async function replaceHomeAds(ads: HomeAd[], placement: 'hero' | 'square' = 'hero'): Promise<void> {
   const client = db();
-  const existing = await client.from('home_ads').select('id');
+  const existing = await client.from('home_ads').select('id').eq('placement', placement);
   fail(existing.error);
   const keep = new Set(ads.map((ad) => ad.id));
   const remove = (existing.data ?? []).map((row) => row.id).filter((id) => !keep.has(id));
@@ -99,6 +101,7 @@ export async function replaceHomeAds(ads: HomeAd[]): Promise<void> {
           image_src: ad.image,
           target_kind: ad.targetRef && ad.targetKind !== 'none' ? ad.targetKind : 'none',
           target_ref: ad.targetRef && ad.targetKind !== 'none' ? ad.targetRef : '',
+          placement,
           sort_order: index,
         })),
       )

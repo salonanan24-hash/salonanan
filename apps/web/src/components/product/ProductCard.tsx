@@ -42,14 +42,17 @@ export function ProductCard({ product }: ProductCardProps) {
     `transition-colors duration-200 ${resting}${quiet ? '' : ' group-hover/card:text-brand-red'}`;
 
   return (
-    <article className="group/card relative flex h-full w-full flex-col overflow-hidden rounded-xl bg-white">
+    <article
+      className="group/card relative flex h-full w-full flex-col overflow-hidden rounded-xl bg-white [&_a]:[-webkit-user-drag:none] [&_img]:[-webkit-user-drag:none]"
+      onDragStart={(event) => event.preventDefault()}
+    >
       <div className="relative z-10 flex h-full flex-col">
       <div
         className="relative bg-white"
         onMouseEnter={() => setImageHot(true)}
         onMouseLeave={() => setImageHot(false)}
       >
-        <Link to={href} className="absolute inset-0 z-0">
+        <Link to={href} draggable={false} className="absolute inset-0 z-0">
           <span className="sr-only">{name}</span>
         </Link>
         <div className="pointer-events-none flex h-[172px] items-center justify-center overflow-hidden bg-white p-3 md:h-[188px]">
@@ -62,7 +65,7 @@ export function ProductCard({ product }: ProductCardProps) {
         </div>
       </div>
       <div className="relative flex flex-1 flex-col gap-1.5 px-3 pt-2.5 pb-3">
-        <Link to={href} tabIndex={-1} aria-hidden="true" className="absolute inset-0 z-0" />
+        <Link to={href} draggable={false} tabIndex={-1} aria-hidden="true" className="absolute inset-0 z-0" />
         <div className="pointer-events-none relative z-10 flex flex-1 flex-col gap-1">
         <div className="flex items-center justify-between gap-2">
           {brand?.image ? (

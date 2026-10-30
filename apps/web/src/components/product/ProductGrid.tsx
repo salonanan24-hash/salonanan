@@ -12,7 +12,7 @@ type ProductGridProps = {
  * so two cards stay compact and sit at the RTL start instead of stretching.
  */
 const gridColumns =
-  'grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 retail:grid-cols-5';
+  'grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 retail:grid-cols-6';
 
 export function ProductGrid({ products }: ProductGridProps) {
   const { messages } = useI18n();
