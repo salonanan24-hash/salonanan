@@ -896,6 +896,165 @@ async function askModel(model: string, url: string, page: string, catalog: Catal
   return fillArabic(proposal);
 }
 
+function placeBriefSpecs(specs: Proposal['specs']): Proposal['specs'] {
+  const placed = specs.map((spec) => {
+    if (spec.section === 'info') return spec;
+    if (isMeasuredFact(spec.labelHe, spec.value)) return { ...spec, section: 'spec' as const };
+    if (spec.section === 'spec' && spec.value.trim().length < 80) return { ...spec, section: 'features' as const };
+    return spec;
+  });
+  return [
+    ...placed.filter((spec) => spec.section === 'spec').slice(0, 24),
+    ...placed.filter((spec) => spec.section === 'features').slice(0, 36),
+    ...placed.filter((spec) => spec.section === 'info').slice(0, 6),
+  ];
+}
+
+function isMeasuredFact(label: string, value: string): boolean {
+  const text = value.trim();
+  if (!text || headingWords(label) >= 3) return false;
+  if (/מק.?ט|דגם|צבע|אחריות|מידות|רוחב|גובה|עומק|משקל|קיבולת|נפח|מיכל|לחץ|משאבה|הספק|חשמל|וולט|ואט|הרץ|טחינה|גוף|חומר/.test(label)) {
+    return text.length <= 400;
+  }
+  if (text.length > 40) return false;
+  return text.length <= 40 && /\d/.test(text) && /ס"מ|ס״מ|מ"מ|ק"ג|ק״ג|ליטר|גרם|בר|וולט|ואט|הרץ/.test(`${label} ${text}`);
+}
+
+function headingWords(label: string): number {
+  return fold(label).split(' ').filter((word) => word.length >= 2).length;
+}
+
+function sharesWord(label: string, text: string): boolean {
+  const words = fold(label).split(' ').filter((word) => word.length >= 4);
+  const hay = fold(text);
+  return words.some((word) => hay.includes(word));
+}
+
+function isFullParagraph(value: string): boolean {
+  const text = value.trim();
+  return text.length >= 80 || text.split(/\s+/).length >= 12;
+}
+
+async function applySpecParagraphs(notes: string, category: Category, variants: BriefVariant[]): Promise<void> {
+  const headings = category.fields.filter((field) => field.section === 'spec' && field.type === 'text' && headingWords(field.label.he) >= 3);
+  if (!notes.trim() || headings.length === 0) return;
+  const paragraphs = await writeSpecParagraphs(notes, headings);
+  for (const variant of variants) variant.specs = mergeParagraphs(variant.specs, headings, paragraphs);
+}
+
+async function writeSpecParagraphs(notes: string, headings: Field[]): Promise<Array<{ fieldId: string; value: string; valueAr: string }>> {
+  const ask = (targets: Field[], reminder: string) =>
+    complete(
+      [
+        {
+          role: 'system',
+          content: `${reminder}Fill each specification heading from the seller notes only. Copy the sentences that belong to that heading and join them with line breaks. Do not summarize, do not shorten a sentence to a few words, and do not leave out a relevant sentence. A heading of several words needs the whole related description, not one detail. Do not put a fact under a heading it does not belong to. If the notes do not discuss a heading, return an empty value. Do not invent. value is Hebrew. valueAr is Arabic. Keep numbers, units, and model codes unchanged.`,
+        },
+        {
+          role: 'user',
+          content: JSON.stringify({
+            notes,
+            headings: targets.map((field) => ({ fieldId: field.id, labelHe: field.label.he, labelAr: field.label.ar })),
+          }),
+        },
+      ],
+      {
+        type: 'json_schema',
+        json_schema: { name: 'spec_paragraphs', strict: true, schema: paragraphSchema },
+      },
+    );
+  const first = await readParagraphs(await ask(headings, '').catch(() => null));
+  const weak = headings.filter((heading) => !isFullParagraph(first.find((item) => item.fieldId === heading.id)?.value ?? ''));
+  if (weak.length === 0 || notes.trim().length < 200) return first;
+  const second = await readParagraphs(
+    await ask(weak, 'The previous paragraphs were too short. Copy the source sentences instead of a short phrase. ').catch(() => null),
+  );
+  return headings.map((heading) => {
+    const again = second.find((item) => item.fieldId === heading.id);
+    const earlier = first.find((item) => item.fieldId === heading.id);
+    if (again && again.value.length > (earlier?.value.length ?? 0)) return again;
+    return earlier ?? { fieldId: heading.id, value: '', valueAr: '' };
+  });
+}
+
+async function readParagraphs(response: Response | null): Promise<Array<{ fieldId: string; value: string; valueAr: string }>> {
+  if (!response?.ok) return [];
+  try {
+    const body = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
+    const parsed = paragraphResultSchema.safeParse(JSON.parse(body.choices?.[0]?.message?.content ?? '{}'));
+    return parsed.success ? parsed.data.paragraphs : [];
+  } catch {
+    return [];
+  }
+}
+
+function mergeParagraphs(
+  specs: Proposal['specs'],
+  headings: Field[],
+  paragraphs: Array<{ fieldId: string; value: string; valueAr: string }>,
+): Proposal['specs'] {
+  const byId = new Map(paragraphs.map((item) => [item.fieldId, item]));
+  const kept = specs.flatMap((spec) => {
+    const heading = headings.find((field) => field.id === spec.fieldId || same(field.label.he, spec.labelHe) || same(field.label.ar, spec.labelAr));
+    if (!heading) return [spec];
+    const paragraph = byId.get(heading.id);
+    const replacing = paragraph ? isFullParagraph(paragraph.value) : false;
+    const misplaced = spec.value.trim().length < 80 && !sharesWord(heading.label.he, `${spec.labelHe} ${spec.value}`);
+    if (!replacing && !misplaced) return [spec];
+    if (!same(spec.labelHe, heading.label.he) && spec.value.trim()) return [{ ...spec, fieldId: '', section: 'features' as const }];
+    return [];
+  });
+  for (const heading of headings) {
+    const paragraph = byId.get(heading.id);
+    const value = paragraph?.value.trim() ?? '';
+    if (!isFullParagraph(value)) continue;
+    kept.unshift({
+      fieldId: heading.id,
+      labelHe: heading.label.he,
+      labelAr: heading.label.ar,
+      type: 'text',
+      section: 'spec',
+      value,
+      valueAr: paragraph?.valueAr.trim() && hasArabic(paragraph.valueAr) ? paragraph.valueAr.trim() : '',
+    });
+  }
+  return kept;
+}
+
+const paragraphSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['paragraphs'],
+  properties: {
+    paragraphs: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['fieldId', 'value', 'valueAr'],
+        properties: {
+          fieldId: { type: 'string' },
+          value: { type: 'string' },
+          valueAr: { type: 'string' },
+        },
+      },
+    },
+  },
+} as const;
+
+const paragraphResultSchema = z.object({
+  paragraphs: z
+    .array(
+      z.object({
+        fieldId: z.string().max(80).default(''),
+        value: z.string().trim().max(4_000).default(''),
+        valueAr: z.string().trim().max(4_000).default(''),
+      }),
+    )
+    .max(24)
+    .default([]),
+});
+
 function placeSpecs(specs: Proposal['specs']): Proposal['specs'] {
   const placed = specs.map((spec) =>
     spec.section === 'spec' && spec.value.trim().length < 40 ? { ...spec, section: 'features' as const } : spec,
@@ -1687,8 +1846,17 @@ function briefPrice(price: string, label: string): string {
 async function intakeBrief(input: z.infer<typeof inputSchema>): Promise<ProductIntake> {
   const catalog = await readCatalog();
   const parsed = parseNotes(input.model, input.notes);
-  if (parsed.specs.length >= 4 || parsed.variants.length >= 2) return applyParsed(input, parsed, catalog);
+  if (canApplyParsed(parsed)) return applyParsed(input, parsed, catalog);
   const brief = await askBrief(input, catalog);
+  const notes = `${input.model}\n${input.notes}`;
+  if (!brief.brand.name.trim()) {
+    const name = brandFromNotes(notes);
+    if (name) brief.brand = { id: '', name, slug: '' };
+  }
+  if (!brief.category.nameHe.trim()) {
+    const nameHe = labeledValue(input.notes, /^קטגור/) || inferCategory(notes);
+    if (nameHe) brief.category = { ...brief.category, nameHe };
+  }
   const fitted = fitSizes(input.model, input.notes, brief.variants);
   const proposal: Proposal = {
     nameHe: brief.nameHe,
@@ -1705,6 +1873,9 @@ async function intakeBrief(input: z.infer<typeof inputSchema>): Promise<ProductI
   const slugs = new Set([...catalog.brands.map((brand) => brand.slug), ...catalog.categories.map((category) => category.slug)]);
   const brandId = await ensureBrand(proposal, catalog, slugs, created);
   const category = await ensureCategory(proposal, catalog, slugs, created);
+  await applySpecParagraphs(input.notes, category, fitted);
+  const paragraphs = fitted.flatMap((variant) => variant.specs.filter((spec) => spec.section === 'spec' && hasHebrew(spec.value) && !hasArabic(spec.valueAr)));
+  if (paragraphs.length > 0) await fillArabic({ ...proposal, specs: paragraphs.slice(0, 24) }).catch(() => proposal);
   const variants = [];
   for (const variant of fitted) {
     const subcategoryId = await ensureSubcategory({ ...proposal, subcategory: variant.subcategory }, category, created);
@@ -1764,7 +1935,7 @@ async function askBrief(input: z.infer<typeof inputSchema>, catalog: Catalog): P
       {
         role: 'system',
         content:
-          'Fill one store product from the seller notes and the attached images. Do not browse, and do not invent a fact that is not written or visible. A model can come in several sizes. Return one variant per size that is written or shown, including size buttons in a picture. Images are shared, so they are not part of the answer. label is the size, such as 55". sku is the model code for that size. If the code contains the inch number, change only that number for the other sizes. price is digits only when that size has its own price written or visible. Never copy one size\'s price onto another size. subcategory is filled only when a subcategory is written. specs are the same facts on every size. Change the screen size, the model code, and measurements that are stated for the source size. Scale a stated measurement in cm, mm, or kg by the ratio of the screen sizes. Leave a measurement empty when it was not stated. Do not change resolution, ports, refresh rate, year, or feature names. Ignore phone numbers, addresses, store names, shipping, and payment badges. nameHe, labelHe, and value are Hebrew. nameAr, labelAr, and valueAr are Arabic. Keep numbers, units, and model codes unchanged. Copy an existing brand, category, subcategory, or field id when it matches. Otherwise leave the id empty and supply both names. Do not fill stock.',
+          'Fill one store product from the seller notes and the attached images. The notes may be any layout: sentences, a loose spec list, a label on one line and its value on the next, or a mix. Read all of it and extract every stated fact as its own specification. A brand inside a sentence still counts. Choose the closest existing category for the product type, or name one when none fits. Do not return an empty product because the notes are not a catalog table. Section features is one short capability. A measured fact such as dimensions, weight, capacity, pressure, power, model code, catalog number, color, or warranty is its own short field. Do not fill an existing spec heading of several words with one short phrase, and do not put a fact under a heading it does not belong to. Do not browse, and do not invent a fact that is not written or visible. A model can come in several sizes. Return one variant per size that is written or shown, including size buttons in a picture. Images are shared, so they are not part of the answer. label is the size, such as 55", or the color when no size is written. sku is the model code or the written catalog number. If the code contains the inch number, change only that number for the other sizes. price is digits only when that size has its own price written or visible. Never copy one size\'s price onto another size. subcategory is filled only when a subcategory is written. specs are the same facts on every size. Change the screen size, the model code, and measurements that are stated for the source size. Scale a stated measurement in cm, mm, or kg by the ratio of the screen sizes. Leave a measurement empty when it was not stated. Do not change resolution, ports, refresh rate, year, or feature names. Ignore phone numbers, addresses, store names, shipping, and payment badges. nameHe, labelHe, and value are Hebrew. nameAr, labelAr, and valueAr are Arabic. Keep numbers, units, and model codes unchanged. Copy an existing brand, category, subcategory, or field id when it matches. Otherwise leave the id empty and supply both names. Do not fill stock.',
       },
       { role: 'user', content },
     ],
@@ -1791,7 +1962,7 @@ async function askBrief(input: z.infer<typeof inputSchema>, catalog: Catalog): P
     color: result.data.variants[0]?.label ?? '',
     variants: result.data.variants.map((variant) => ({
       ...variant,
-      specs: placeSpecs(scrubSpecs(variant.specs).filter((spec) => !isStoreNoise(spec.labelHe) && !isStoreNoise(spec.value))),
+      specs: placeBriefSpecs(scrubSpecs(variant.specs).filter((spec) => !isStoreNoise(spec.labelHe) && !isStoreNoise(spec.value))),
     })),
   };
 }
@@ -1842,6 +2013,44 @@ const briefResultSchema = z.object({
     .max(8)
     .default([]),
 });
+
+function canApplyParsed(parsed: ParsedNotes): boolean {
+  if (!parsed.brandName.trim() || !parsed.categoryName.trim()) return false;
+  return parsed.specs.length >= 4 || parsed.variants.length >= 2;
+}
+
+function labeledValue(notes: string, label: RegExp): string {
+  const lines = notes.split('\n').map((line) => line.trim()).filter(Boolean);
+  const bare = label.source.replace(/^\^/, '').replace(/\$$/, '');
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? '';
+    const inline = line.match(new RegExp(`^${bare}\\s*[:：]?\\s*(.+)$`));
+    if (inline?.[1] && !label.test(inline[1])) return inline[1].trim();
+    if (label.test(line) && line.length <= 24) {
+      const next = lines[index + 1] ?? '';
+      if (next && next.length <= 80 && !label.test(next)) return next;
+    }
+  }
+  return '';
+}
+
+function brandFromNotes(notes: string): string {
+  const labeled = labeledValue(notes, /^מותג$/);
+  if (labeled) return labeled;
+  return notes.match(/(?:קונצרן|מותג)\s+([A-Za-z][A-Za-z0-9&.\- ]{1,40})/)?.[1]?.trim() ?? '';
+}
+
+function inferCategory(text: string): string {
+  if (/מכונ(?:ת|ות) קפה/.test(text)) return 'מכונות קפה';
+  if (/טלוויז/.test(text)) return 'טלוויזיות';
+  if (/מקרר/.test(text)) return 'מקררים';
+  if (/כביסה|מייבש/.test(text)) return 'מכונות כביסה';
+  if (/מזגן/.test(text)) return 'מזגנים';
+  if (/מדיח/.test(text)) return 'מדיחי כלים';
+  if (/כיריים/.test(text)) return 'כיריים';
+  if (/תנור/.test(text)) return 'תנורים';
+  return '';
+}
 
 function fitSizes(model: string, notes: string, variants: BriefVariant[]): BriefVariant[] {
   const cleaned = variants.filter((variant) => variant.label || variant.sku || variant.price || variant.specs.length > 0);
@@ -2053,6 +2262,9 @@ async function ensureSpecs(
     if (field.type === 'boolean') stored = booleanValue(stored);
     if (field.type === 'number') stored = numberValue(stored);
     if (!stored) continue;
+    const previous = values[field.id] ?? '';
+    if (previous.length >= 80 && stored.length <= previous.length) continue;
+    if (field.section === 'spec' && headingWords(field.label.he) >= 3 && stored.length < 80 && !sharesWord(field.label.he, `${spec.labelHe} ${stored}`)) continue;
     values[field.id] = stored;
     arabic[field.id] = field.type === 'boolean' || field.type === 'number' ? stored : spec.valueAr.trim();
     if (Object.keys(values).length >= 80) break;
