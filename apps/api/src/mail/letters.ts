@@ -233,6 +233,37 @@ export async function sendOrderPlaced(order: MailOrder): Promise<void> {
   ]);
 }
 
+export async function sendSiteInquiry(input: {
+  name: string;
+  email: string;
+  phone: string;
+  message: string;
+}): Promise<boolean> {
+  const name = input.name.replace(/[\r\n]/g, ' ').trim();
+  const html = page(
+    'he',
+    `${paragraph('פנייה מהאתר', 'margin:0 0 12px;font-size:18px;font-weight:700;')}
+     <table dir="rtl" role="presentation" width="100%" cellpadding="0" cellspacing="0" style="${rtlStyle}">
+       ${row('שם', name)}
+       ${row('אימייל', input.email)}
+       ${row('טלפון', input.phone)}
+     </table>
+     <div dir="rtl" style="margin-top:16px;padding-top:16px;border-top:1px solid #e5e7eb;white-space:pre-wrap;${rtlStyle}">&#x200F;${esc(input.message)}</div>`,
+  );
+  const results = await Promise.all(
+    adminEmails.map((to) =>
+      sendMail({
+        to,
+        subject: `פנייה מהאתר — ${name}`,
+        html,
+        fromName: storeName.he,
+        replyTo: input.email,
+      }),
+    ),
+  );
+  return results.some(Boolean);
+}
+
 export async function sendPasswordCodeMail(email: string, code: string, locale: MailLocale): Promise<boolean> {
   const subject = locale === 'ar' ? 'رمز إعادة تعيين كلمة المرور' : 'קוד לאיפוס הסיסמה';
   const lead = locale === 'ar'

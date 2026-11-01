@@ -8,7 +8,13 @@ export function mailFrom(displayName: string): string {
   return `${displayName} <${email}>`;
 }
 
-export async function sendMail(input: { to: string; subject: string; html: string; fromName: string }): Promise<boolean> {
+export async function sendMail(input: {
+  to: string;
+  subject: string;
+  html: string;
+  fromName: string;
+  replyTo?: string;
+}): Promise<boolean> {
   if (!config.resendApiKey) {
     logger.warn('mail skipped, RESEND_API_KEY is empty');
     return false;
@@ -25,6 +31,7 @@ export async function sendMail(input: { to: string; subject: string; html: strin
         to: [input.to],
         subject: input.subject,
         html: input.html,
+        ...(input.replyTo ? { reply_to: input.replyTo } : {}),
       }),
       signal: AbortSignal.timeout(12_000),
     });

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { adminRouter } from '../admin/routes.js';
 import { accountRouter } from './account.js';
 import { catalogRouter } from './catalog.js';
+import { contactRouter } from './contact.js';
 import { healthRouter } from './health.js';
 import { ordersRouter } from './orders.js';
 import { homeAdsRouter } from './home-ads.js';
@@ -11,6 +12,7 @@ export const apiRouter = Router();
 
 apiRouter.use(healthRouter);
 apiRouter.use('/catalog', catalogRouter);
+apiRouter.use('/contact', contactRouter);
 apiRouter.use('/account', accountRouter);
 apiRouter.use('/orders', ordersRouter);
 apiRouter.use('/packages', packagesRouter);

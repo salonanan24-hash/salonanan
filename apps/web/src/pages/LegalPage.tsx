@@ -33,8 +33,3 @@ export function PrivacyPage() {
   const { messages } = useI18n();
   return <LegalPage title={messages.legal.privacyTitle} paragraphs={messages.legal.privacy} />;
 }
-
-export function ContactPage() {
-  const { messages } = useI18n();
-  return <LegalPage title={messages.legal.contactTitle} paragraphs={messages.legal.contact} />;
-}

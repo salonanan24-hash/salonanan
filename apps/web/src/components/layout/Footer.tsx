@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { activeCatalog } from '@/data/catalog';
+import { storeMapUrl, storePhones } from '@/data/store-contact';
 import { fill, useI18n } from '@/i18n';
 import { Container } from '@/components/ui/Container';
 
@@ -7,6 +8,7 @@ export function Footer() {
   const { locale, messages } = useI18n();
   const year = new Date().getFullYear();
   const serviceLinks = [
+    { to: '/contact', label: messages.nav.contact },
     { to: '/account', label: messages.nav.account },
     { to: '/favorites', label: messages.nav.favorites },
     { to: '/compare', label: messages.nav.compare },
@@ -26,7 +28,16 @@ export function Footer() {
             className="h-10 w-auto"
           />
           <p className="mt-4 text-sm leading-6 text-white/75">{messages.footer.about}</p>
-          <p className="mt-3 text-sm leading-6 text-white/75">{messages.footer.contact}</p>
+          <div className="mt-3 space-y-1 text-sm leading-6 text-white/75">
+            {storePhones.map((phone) => (
+              <a key={phone.href} href={phone.href} dir="ltr" className="block w-fit hover:text-white">
+                {phone.display}
+              </a>
+            ))}
+            <a href={storeMapUrl} target="_blank" rel="noreferrer" className="block w-fit hover:text-white">
+              {messages.contactPage.address}
+            </a>
+          </div>
         </div>
         <div>
           <h2 className="text-sm font-bold text-white">{messages.footer.categories}</h2>
