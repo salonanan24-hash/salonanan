@@ -1,5 +1,5 @@
 import { Link, useSearchParams } from 'react-router-dom';
-import { brandById, categoryImage, type DemoProduct, type StoreCategory } from '@/data/catalog';
+import { brandById, byDisplayOrder, categoryImage, type DemoProduct, type StoreCategory } from '@/data/catalog';
 import {
   brandSubcategories,
   categoryLanding,
@@ -32,7 +32,7 @@ export function CategoryLandingPage({
     : products;
   const landing = categoryLanding(category.slug);
   const filters = listingFilters(category.slug, visible, selectedSub ?? '');
-  const savedSubs = category.subcategories ?? [];
+  const savedSubs = byDisplayOrder(category.subcategories ?? []);
   const subcategories = savedSubs.length > 0 ? [] : brandSubcategories(products);
   const banner = category.image || categoryImage(category.slug);
   const brands = [...new Set(products.map((product) => product.brandId))].flatMap((id) => {

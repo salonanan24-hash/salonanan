@@ -132,6 +132,21 @@ function screenInches(specs: Record<string, string>, label: string): number | un
   return value >= 32 && value <= 120 ? value : undefined;
 }
 
+function byDisplayOrder<T extends { displayOrder?: number | null }>(items: readonly T[]): T[] {
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((left, right) => {
+      const a = left.item.displayOrder;
+      const b = right.item.displayOrder;
+      const aSet = typeof a === 'number';
+      const bSet = typeof b === 'number';
+      if (aSet && bSet && a !== b) return a - b;
+      if (aSet !== bSet) return aSet ? -1 : 1;
+      return left.index - right.index;
+    })
+    .map((entry) => entry.item);
+}
+
 function productSlug(id: string): string {
   return id.startsWith('p-') ? id.slice(2) : id.toLowerCase();
 }
@@ -147,10 +162,11 @@ export function toStorefront(catalog: CatalogPayload) {
       description: { he: '', ar: '' },
       image: category.image,
       displayOrder: category.displayOrder,
-      subcategories: category.subcategories.map((item) => ({
+      subcategories: byDisplayOrder(category.subcategories).map((item) => ({
         id: item.id,
         name: item.name,
         image: item.image,
+        displayOrder: item.displayOrder,
       })),
     })),
     brands: catalog.brands.map((brand) => ({

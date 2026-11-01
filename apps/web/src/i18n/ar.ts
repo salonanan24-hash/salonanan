@@ -606,6 +606,7 @@ export const ar: typeof he = {
       nameAr: 'العربية',
       displayOrder: 'ترتيب العرض',
       displayOrderHint: 'الرقم الأصغر يظهر أولًا في صف الفئات بالصفحة الرئيسية. يمكن تركه فارغًا.',
+      subDisplayOrderHint: 'الرقم الأصغر يظهر أولًا في صفحة الفئة. يمكن تركه فارغًا.',
       image: 'صورة',
       changeImage: 'استبدال الصورة',
       removeImage: 'إزالة الصورة',

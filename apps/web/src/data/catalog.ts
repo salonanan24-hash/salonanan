@@ -498,6 +498,7 @@ export type StoreSubcategory = {
   id: string;
   name: LocalizedText;
   image: string;
+  displayOrder?: number | null;
 };
 
 export type StoreCategory = CatalogCategory & {

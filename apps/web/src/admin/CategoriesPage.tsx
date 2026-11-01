@@ -19,13 +19,13 @@ import { byDisplayOrder } from '@/data/catalog';
 import { useI18n } from '@/i18n';
 
 type CategoryDraft = { id: string | null; slug: string; nameHe: string; nameAr: string; image: string; displayOrder: string };
-type NamedDraft = { id: string | null; nameHe: string; nameAr: string; image: string };
+type NamedDraft = { id: string | null; nameHe: string; nameAr: string; image: string; displayOrder: string };
 type FieldDraft = { id: string | null; nameHe: string; nameAr: string; type: FieldType; section: FieldSection };
 
 const sections: readonly FieldSection[] = ['spec', 'features', 'info'];
 
 const emptyCategory = (): CategoryDraft => ({ id: null, slug: '', nameHe: '', nameAr: '', image: '', displayOrder: '' });
-const emptyNamed = (): NamedDraft => ({ id: null, nameHe: '', nameAr: '', image: '' });
+const emptyNamed = (): NamedDraft => ({ id: null, nameHe: '', nameAr: '', image: '', displayOrder: '' });
 
 export function CategoriesPage() {
   const { locale, messages } = useI18n();
@@ -166,19 +166,28 @@ export function CategoriesPage() {
                   <h2 className="text-lg font-extrabold">{copy.subs}</h2>
                   <p className="mt-1 text-sm text-muted">{selected.name[locale]}</p>
                   <ul className="mt-3 divide-y divide-line">
-                    {selected.subcategories.map((item) => (
+                    {byDisplayOrder(selected.subcategories).map((item) => (
                       <li key={item.id} className="flex items-center gap-2 py-2">
                         {item.image ? (
                           <img src={item.image} alt="" className="h-10 w-10 rounded-lg object-contain" />
                         ) : (
                           <span className="h-10 w-10 rounded-lg bg-[#f3f5f8]" />
                         )}
-                        <span className="min-w-0 flex-1 text-sm font-semibold">{item.name[locale]}</span>
+                        <span className="min-w-0 flex-1 text-sm font-semibold">
+                          {item.name[locale]}
+                          {item.displayOrder == null ? '' : ` · ${item.displayOrder}`}
+                        </span>
                         <IconButton
                           type="button"
                           aria-label={copy.edit}
                           onClick={() =>
-                            setSubDraft({ id: item.id, nameHe: item.name.he, nameAr: item.name.ar, image: item.image })
+                            setSubDraft({
+                              id: item.id,
+                              nameHe: item.name.he,
+                              nameAr: item.name.ar,
+                              image: item.image,
+                              displayOrder: item.displayOrder == null ? '' : String(item.displayOrder),
+                            })
                           }
                         >
                           <Pencil className="size-3.5" aria-hidden="true" />
@@ -198,11 +207,14 @@ export function CategoriesPage() {
                     onSubmit={(event) => {
                       event.preventDefault();
                       if (!subDraft.nameHe.trim()) return;
+                      const displayOrder = subDraft.displayOrder.trim();
+                      if (displayOrder !== '' && !/^\d{1,4}$/.test(displayOrder)) return;
                       void saveSubcategory(selected.id, {
                         id: subDraft.id ?? undefined,
                         nameHe: subDraft.nameHe,
                         nameAr: subDraft.nameAr,
                         image: subDraft.image,
+                        displayOrder: displayOrder === '' ? null : Number(displayOrder),
                       })
                         .then(() => setSubDraft(emptyNamed()))
                         .catch(() => setNotice(messages.desk.saveFailed));
@@ -221,6 +233,16 @@ export function CategoriesPage() {
                       aria-label={copy.nameAr}
                       onChange={(event) => setSubDraft({ ...subDraft, nameAr: event.target.value })}
                     />
+                    <Field label={copy.displayOrder}>
+                      <TextInput
+                        inputMode="numeric"
+                        value={subDraft.displayOrder}
+                        onChange={(event) =>
+                          setSubDraft({ ...subDraft, displayOrder: event.target.value.replace(/\D/g, '').slice(0, 4) })
+                        }
+                      />
+                      <p className="mt-1.5 text-xs text-muted">{copy.subDisplayOrderHint}</p>
+                    </Field>
                     <ImagePick
                       label={copy.image}
                       hint={copy.imageHint}

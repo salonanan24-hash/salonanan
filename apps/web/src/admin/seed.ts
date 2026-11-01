@@ -33,7 +33,7 @@ function subsFromProducts(slug: string): AdminSubcategory[] {
     if (product.categorySlug !== slug) continue;
     const sub = productSubcategory(product);
     if (!sub || sub.id.startsWith('category-') || seen.has(sub.id)) continue;
-    seen.set(sub.id, { id: sub.id, name: sub.name, image: '' });
+    seen.set(sub.id, { id: sub.id, name: sub.name, image: '', displayOrder: null });
   }
   return [...seen.values()];
 }
@@ -43,7 +43,7 @@ function subcategoriesFor(slug: string): AdminSubcategory[] {
     const landing = categoryLanding('refrigerators');
     return (landing?.subcategories ?? [])
       .filter((item) => item.id !== 'all')
-      .map((item) => ({ id: `refrigerators-${item.id}`, name: item.name, image: '' }));
+      .map((item) => ({ id: `refrigerators-${item.id}`, name: item.name, image: '', displayOrder: null }));
   }
   return subsFromProducts(slug);
 }

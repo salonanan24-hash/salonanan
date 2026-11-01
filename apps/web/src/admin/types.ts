@@ -15,6 +15,7 @@ export type AdminSubcategory = {
   id: string;
   name: LocalizedText;
   image: string;
+  displayOrder: number | null;
 };
 
 export type AdminCategory = {

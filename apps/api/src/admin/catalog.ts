@@ -96,7 +96,16 @@ const catalogSchema = z.object({
         name: localized,
         image: storedImage,
         displayOrder: z.number().int().min(0).max(9_999).nullable().default(null),
-        subcategories: z.array(z.object({ id: idSchema, name: localized, image: storedImage })).max(40),
+        subcategories: z
+          .array(
+            z.object({
+              id: idSchema,
+              name: localized,
+              image: storedImage,
+              displayOrder: z.number().int().min(0).max(9_999).nullable().default(null),
+            }),
+          )
+          .max(40),
         fields: z
           .array(
             z.object({
@@ -171,7 +180,7 @@ export async function readCatalog(): Promise<CatalogPayload> {
   const [categories, subcategories, fields, brands, products, specs, variants, variantSpecs, images, coupons, couponProducts, settings, zones] =
     await Promise.all([
       client.from('categories').select('id, slug, name_he, name_ar, image_src, sort_order, display_order').order('sort_order'),
-      client.from('subcategories').select('id, category_id, name_he, name_ar, image_src, sort_order').order('sort_order'),
+      client.from('subcategories').select('id, category_id, name_he, name_ar, image_src, sort_order, display_order').order('sort_order'),
       client.from('category_fields').select('id, category_id, label_he, label_ar, field_type, section, sort_order').order('sort_order'),
       client.from('brands').select('id, slug, name, image_src, sort_order').order('sort_order'),
       client.from('products').select('id, name_he, name_ar, price_minor, brand_id, category_id, subcategory_id, sort_order').order('sort_order'),
@@ -207,6 +216,7 @@ export async function readCatalog(): Promise<CatalogPayload> {
         id: item.id,
         name: { he: item.name_he, ar: item.name_ar },
         image: item.image_src ?? '',
+        displayOrder: item.display_order,
       })),
       fields: (fieldsByCategory.get(category.id) ?? []).map((item) => ({
         id: item.id,
@@ -331,6 +341,7 @@ export async function importCatalog(input: CatalogPayload): Promise<CatalogPaylo
       name_ar: item.name.ar,
       image_src: item.image,
       sort_order: index,
+      display_order: item.displayOrder ?? null,
     })),
   );
   if (subcategories.length > 0) check((await client.from('subcategories').insert(subcategories)).error);
@@ -492,6 +503,7 @@ export const namedInput = z.object({
 
 export const subcategoryInput = namedInput.extend({
   image: storedImage,
+  displayOrder: z.number().int().min(0).max(9_999).nullable().optional(),
 });
 
 export async function createSubcategory(categoryId: string, input: z.infer<typeof subcategoryInput>) {
@@ -502,6 +514,7 @@ export async function createSubcategory(categoryId: string, input: z.infer<typeo
     name_ar: input.nameAr || input.nameHe,
     image_src: input.image,
     sort_order: await nextChildSort('subcategories', categoryId),
+    display_order: input.displayOrder ?? null,
   });
   check(error);
 }
@@ -513,6 +526,7 @@ export async function updateSubcategory(id: string, input: Omit<z.infer<typeof s
       name_he: input.nameHe,
       name_ar: input.nameAr || input.nameHe,
       image_src: input.image,
+      display_order: input.displayOrder ?? null,
     })
     .eq('id', id);
   check(error);

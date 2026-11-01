@@ -54,7 +54,7 @@ type AdminState = AdminData & {
   removeCategory: (id: string) => Promise<boolean>;
   saveSubcategory: (
     categoryId: string,
-    input: { id?: string; nameHe: string; nameAr: string; image: string },
+    input: { id?: string; nameHe: string; nameAr: string; image: string; displayOrder: number | null },
   ) => Promise<void>;
   removeSubcategory: (categoryId: string, subcategoryId: string) => Promise<void>;
   saveField: (
@@ -94,7 +94,11 @@ function readLocalAdmin(): AdminData | null {
     const state = parsed.state;
     if (!state?.categories?.length && !state?.brands?.length && !state?.products?.length) return null;
     return {
-      categories: (state.categories ?? []).map((category) => ({ ...category, displayOrder: category.displayOrder ?? null })),
+      categories: (state.categories ?? []).map((category) => ({
+        ...category,
+        displayOrder: category.displayOrder ?? null,
+        subcategories: (category.subcategories ?? []).map((item) => ({ ...item, displayOrder: item.displayOrder ?? null })),
+      })),
       brands: state.brands ?? [],
       products: state.products ?? [],
       coupons: (state.coupons ?? []).map((coupon) => ({
@@ -218,12 +222,12 @@ export const useAdminStore = create<AdminState>()((set, get) => ({
       if (input.id) {
         await adminRequest(`/api/admin/subcategories/${id}`, {
           method: 'PATCH',
-          body: JSON.stringify({ nameHe, nameAr, image: input.image }),
+          body: JSON.stringify({ nameHe, nameAr, image: input.image, displayOrder: input.displayOrder }),
         });
       } else {
         await adminRequest(`/api/admin/categories/${categoryId}/subcategories`, {
           method: 'POST',
-          body: JSON.stringify({ id, nameHe, nameAr, image: input.image }),
+          body: JSON.stringify({ id, nameHe, nameAr, image: input.image, displayOrder: input.displayOrder }),
         });
       }
     } catch (error) {
@@ -238,11 +242,18 @@ export const useAdminStore = create<AdminState>()((set, get) => ({
           return {
             ...category,
             subcategories: category.subcategories.map((item) =>
-              item.id === id ? { ...item, name: { he: nameHe, ar: nameAr }, image: input.image } : item,
+              item.id === id
+                ? { ...item, name: { he: nameHe, ar: nameAr }, image: input.image, displayOrder: input.displayOrder }
+                : item,
             ),
           };
         }
-        const created: AdminSubcategory = { id, name: { he: nameHe, ar: nameAr }, image: input.image };
+        const created: AdminSubcategory = {
+          id,
+          name: { he: nameHe, ar: nameAr },
+          image: input.image,
+          displayOrder: input.displayOrder,
+        };
         return { ...category, subcategories: [...category.subcategories, created] };
       }),
     }));
