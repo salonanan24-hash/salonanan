@@ -1,7 +1,7 @@
 import { CreditCard, Home, Languages, Truck } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { byDisplayOrder, categoryBySlug, categoryImage, searchProducts, type DemoProduct } from '@/data/catalog';
+import { byDisplayOrder, categoryBySlug, categoryImage, searchProducts, type DemoProduct, type StoreCategory } from '@/data/catalog';
 import { fill, useI18n } from '@/i18n';
 import { useDevelopmentCatalog } from '@/hooks/use-catalog';
 import { usePageTitle } from '@/hooks/use-page-title';
@@ -51,7 +51,7 @@ export function HomePage() {
             section="featured"
             title={messages.home.featuredTitle}
             subtitle={messages.home.featuredSubtitle}
-            products={products.slice(0, 12)}
+            products={featuredSelection(products, data.categories)}
           />
           <Container className="py-2">
             <HomeAds placement="square" />
@@ -100,6 +100,33 @@ export function HomePage() {
       )}
     </div>
   );
+}
+
+function featuredSelection(products: readonly DemoProduct[], categories: readonly StoreCategory[], limit = 20) {
+  const grouped = new Map<string, DemoProduct[]>();
+  for (const category of byDisplayOrder(categories)) grouped.set(category.slug, []);
+  for (const product of products) {
+    const list = grouped.get(product.categorySlug);
+    if (list) list.push(product);
+    else grouped.set(product.categorySlug, [product]);
+  }
+  const queues = [...grouped.values()].filter((queue) => queue.length > 0);
+  const picked: DemoProduct[] = [];
+  while (picked.length < limit && queues.some((queue) => queue.length > 0)) {
+    let placed = false;
+    for (const queue of queues) {
+      if (picked.length >= limit || queue.length === 0) continue;
+      const next = queue[0];
+      if (!next || picked.at(-1)?.categorySlug === next.categorySlug) continue;
+      picked.push(queue.shift() as DemoProduct);
+      placed = true;
+    }
+    if (placed) continue;
+    const rest = queues.find((queue) => queue.length > 0);
+    while (rest && picked.length < limit && rest.length > 0) picked.push(rest.shift() as DemoProduct);
+    break;
+  }
+  return picked;
 }
 
 function CategoryShortcuts() {
@@ -382,6 +409,7 @@ function ProductSection({
                 href={href}
                 actionLabel={href ? messages.home.viewCategory : undefined}
                 perRow={beside ? 4 : 6}
+                loop={section === 'featured'}
                 aside={aside}
               />
             </>

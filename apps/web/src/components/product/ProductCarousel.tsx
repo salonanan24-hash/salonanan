@@ -1,5 +1,5 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import type { DemoProduct } from '@/data/catalog';
 import { useI18n } from '@/i18n';
 import { SectionHeader } from '@/components/ui/SectionHeader';
@@ -14,6 +14,7 @@ type ProductCarouselProps = {
   headingId?: string;
   perRow?: 4 | 5 | 6;
   aside?: ReactNode;
+  loop?: boolean;
 };
 
 const cardWidth = {
@@ -26,7 +27,7 @@ function motion(): ScrollBehavior {
   return window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
 }
 
-function alignCard(container: HTMLElement, element: HTMLElement, edge: 'start' | 'end') {
+function alignCard(container: HTMLElement, element: HTMLElement, edge: 'start' | 'end', behavior: ScrollBehavior = motion()) {
   const rtl = getComputedStyle(container).direction === 'rtl';
   const containerRect = container.getBoundingClientRect();
   const elementRect = element.getBoundingClientRect();
@@ -38,7 +39,7 @@ function alignCard(container: HTMLElement, element: HTMLElement, edge: 'start' |
       : rtl
         ? elementRect.left - containerRect.left
         : elementRect.right - containerRect.right;
-  container.scrollBy({ left: delta, behavior: motion() });
+  container.scrollBy({ left: delta, behavior });
 }
 
 export function ProductCarousel({
@@ -50,20 +51,23 @@ export function ProductCarousel({
   headingId,
   perRow = 5,
   aside,
+  loop = false,
 }: ProductCarouselProps) {
   const { messages } = useI18n();
   const scrollerId = `product-carousel-${useId().replaceAll(':', '')}`;
   const scrollerRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Array<HTMLLIElement | null>>([]);
   const dragRef = useRef<{ pointerId: number; x: number; y: number; moved: boolean } | null>(null);
-  const [edges, setEdges] = useState({ prev: false, next: false });
+  const [edges, setEdges] = useState({ prev: false, next: false, overflow: false });
+  const settling = useRef(false);
+  const settleRef = useRef<() => void>(() => {});
   const [dragging, setDragging] = useState(false);
 
   const measure = useCallback(() => {
     const root = scrollerRef.current;
     const items = itemRefs.current.filter((item): item is HTMLLIElement => item !== null);
     if (!root || items.length === 0) {
-      setEdges({ prev: false, next: false });
+      setEdges({ prev: false, next: false, overflow: false });
       return;
     }
     const rootRect = root.getBoundingClientRect();
@@ -73,12 +77,13 @@ export function ProductCarousel({
     if (!first || !last) return;
     const overflow = root.scrollWidth - root.clientWidth > 4;
     if (!overflow) {
-      setEdges({ prev: false, next: false });
+      setEdges({ prev: false, next: false, overflow: false });
       return;
     }
     setEdges({
       prev: rtl ? first.right > rootRect.right + 4 : first.left < rootRect.left - 4,
       next: rtl ? last.left < rootRect.left - 4 : last.right > rootRect.right + 4,
+      overflow: true,
     });
   }, []);
 
@@ -88,14 +93,40 @@ export function ProductCarousel({
     if (!root) return;
     const observer = new ResizeObserver(measure);
     observer.observe(root);
-    root.addEventListener('scroll', measure, { passive: true });
+    let frame = 0;
+    const onScroll = () => {
+      measure();
+      if (settling.current) return;
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => settleRef.current());
+    };
+    root.addEventListener('scroll', onScroll, { passive: true });
+    root.addEventListener('scrollend', onScroll);
     window.addEventListener('resize', measure);
     return () => {
       observer.disconnect();
-      root.removeEventListener('scroll', measure);
+      cancelAnimationFrame(frame);
+      root.removeEventListener('scroll', onScroll);
+      root.removeEventListener('scrollend', onScroll);
       window.removeEventListener('resize', measure);
     };
   }, [measure, products]);
+
+  const looping = loop && products.length > 1;
+  const signature = products.map((product) => product.id).join('|');
+
+  useLayoutEffect(() => {
+    if (!looping) return;
+    const root = scrollerRef.current;
+    const element = itemRefs.current[products.length];
+    if (!root || !element) return;
+    itemRefs.current.length = products.length * 3;
+    root.style.scrollBehavior = 'auto';
+    root.style.scrollSnapType = 'none';
+    alignCard(root, element, 'start', 'auto');
+    root.style.scrollBehavior = '';
+    root.style.scrollSnapType = '';
+  }, [looping, signature, products.length]);
 
   if (products.length === 0) return null;
 
@@ -120,11 +151,41 @@ export function ProductCarousel({
     return index;
   }
 
+  function settleLoop() {
+    const root = scrollerRef.current;
+    const count = products.length;
+    if (!looping || !root || count < 2 || settling.current) return;
+    const index = firstVisibleIndex();
+    const target = index < count ? index + count : index >= count * 2 ? index - count : index;
+    if (target === index) return;
+    const element = itemRefs.current[target];
+    if (!element) return;
+    settling.current = true;
+    root.style.scrollBehavior = 'auto';
+    root.style.scrollSnapType = 'none';
+    alignCard(root, element, 'start', 'auto');
+    root.style.scrollBehavior = '';
+    root.style.scrollSnapType = '';
+    requestAnimationFrame(() => {
+      settling.current = false;
+    });
+  }
+
+  settleRef.current = settleLoop;
+
   function scrollByPage(direction: 1 | -1) {
     const root = scrollerRef.current;
     if (!root) return;
+    const count = products.length;
+    const span = looping ? count * 3 : count;
     const current = firstVisibleIndex();
-    const target = Math.max(0, Math.min(products.length - 1, current + direction));
+    let target = current + direction;
+    if (looping) {
+      if (target < 0) target = span - 1;
+      if (target >= span) target = 0;
+    } else {
+      target = Math.max(0, Math.min(count - 1, target));
+    }
     const element = itemRefs.current[target];
     if (!element) return;
     alignCard(root, element, 'start');
@@ -140,11 +201,13 @@ export function ProductCarousel({
       scrollByPage(rtl ? -1 : 1);
     } else if (event.key === 'Home') {
       event.preventDefault();
-      const first = itemRefs.current[0];
+      const origin = looping ? products.length : 0;
+      const first = itemRefs.current[origin];
       if (first && scrollerRef.current) alignCard(scrollerRef.current, first, 'start');
     } else if (event.key === 'End') {
       event.preventDefault();
-      const last = itemRefs.current[products.length - 1];
+      const origin = looping ? products.length : 0;
+      const last = itemRefs.current[origin + products.length - 1];
       if (last && scrollerRef.current) alignCard(scrollerRef.current, last, 'end');
     }
   }
@@ -190,9 +253,10 @@ export function ProductCarousel({
       node.removeEventListener('click', stopClick, true);
     };
     node.addEventListener('click', stopClick, true);
+    requestAnimationFrame(() => settleRef.current());
   }
 
-  const showArrows = edges.prev || edges.next;
+  const showArrows = edges.overflow && (looping || edges.prev || edges.next);
 
   return (
     <section aria-roledescription="carousel" aria-label={title} className="min-w-0">
@@ -209,7 +273,7 @@ export function ProductCarousel({
                 type="button"
                 aria-label={messages.carousel.prev}
                 aria-controls={scrollerId}
-                disabled={!edges.prev}
+                disabled={!looping && !edges.prev}
                 onClick={() => scrollByPage(-1)}
                 className="inline-flex h-9 w-9 items-center justify-center border border-line bg-white text-ink disabled:opacity-35"
               >
@@ -219,7 +283,7 @@ export function ProductCarousel({
                 type="button"
                 aria-label={messages.carousel.next}
                 aria-controls={scrollerId}
-                disabled={!edges.next}
+                disabled={!looping && !edges.next}
                 onClick={() => scrollByPage(1)}
                 className="inline-flex h-9 w-9 items-center justify-center border border-line bg-white text-ink disabled:opacity-35"
               >
@@ -245,17 +309,23 @@ export function ProductCarousel({
           }`}
         >
           <ul className="flex w-max gap-3 lg:gap-4">
-            {products.map((product, index) => (
-              <li
-                key={product.id}
-                ref={(node) => {
-                  itemRefs.current[index] = node;
-                }}
-                className={`shrink-0 snap-start ${cardWidth[perRow]}`}
-              >
-                <ProductCard product={product} />
-              </li>
-            ))}
+            {(looping ? [0, 1, 2] : [0]).flatMap((cycle) =>
+              products.map((product, index) => {
+                const position = cycle * products.length + index;
+                return (
+                  <li
+                    key={`${cycle}-${product.id}`}
+                    ref={(node) => {
+                      itemRefs.current[position] = node;
+                    }}
+                    aria-hidden={looping && cycle !== 1 ? true : undefined}
+                    className={`shrink-0 snap-start ${cardWidth[perRow]}`}
+                  >
+                    <ProductCard product={product} />
+                  </li>
+                );
+              }),
+            )}
           </ul>
         </div>
         {aside ? <div className="min-h-0 xl:h-full">{aside}</div> : null}
