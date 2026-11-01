@@ -146,6 +146,7 @@ export function toStorefront(catalog: CatalogPayload) {
       name: category.name,
       description: { he: '', ar: '' },
       image: category.image,
+      displayOrder: category.displayOrder,
       subcategories: category.subcategories.map((item) => ({
         id: item.id,
         name: item.name,

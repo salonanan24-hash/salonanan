@@ -124,6 +124,7 @@ export function seedAdmin(): AdminData {
     slug: category.slug,
     name: category.name,
     image: '',
+    displayOrder: null,
     subcategories: subcategoriesFor(category.slug),
     fields: categoryFields[category.slug] ?? [],
   }));

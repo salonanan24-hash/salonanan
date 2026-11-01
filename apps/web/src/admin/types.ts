@@ -22,6 +22,7 @@ export type AdminCategory = {
   slug: string;
   name: LocalizedText;
   image: string;
+  displayOrder: number | null;
   subcategories: AdminSubcategory[];
   fields: AdminField[];
 };

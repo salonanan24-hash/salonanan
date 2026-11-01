@@ -599,6 +599,8 @@ export const ar: typeof he = {
       slug: 'المعرّف',
       nameHe: 'العبرية',
       nameAr: 'العربية',
+      displayOrder: 'ترتيب العرض',
+      displayOrderHint: 'الرقم الأصغر يظهر أولًا في صف الفئات بالصفحة الرئيسية. يمكن تركه فارغًا.',
       image: 'صورة',
       changeImage: 'استبدال الصورة',
       removeImage: 'إزالة الصورة',

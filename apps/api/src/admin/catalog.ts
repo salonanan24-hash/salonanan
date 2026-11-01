@@ -95,6 +95,7 @@ const catalogSchema = z.object({
         slug: slugSchema,
         name: localized,
         image: storedImage,
+        displayOrder: z.number().int().min(0).max(9_999).nullable().default(null),
         subcategories: z.array(z.object({ id: idSchema, name: localized, image: storedImage })).max(40),
         fields: z
           .array(
@@ -169,7 +170,7 @@ export async function readCatalog(): Promise<CatalogPayload> {
   const client = db();
   const [categories, subcategories, fields, brands, products, specs, variants, variantSpecs, images, coupons, couponProducts, settings, zones] =
     await Promise.all([
-      client.from('categories').select('id, slug, name_he, name_ar, image_src, sort_order').order('sort_order'),
+      client.from('categories').select('id, slug, name_he, name_ar, image_src, sort_order, display_order').order('sort_order'),
       client.from('subcategories').select('id, category_id, name_he, name_ar, image_src, sort_order').order('sort_order'),
       client.from('category_fields').select('id, category_id, label_he, label_ar, field_type, section, sort_order').order('sort_order'),
       client.from('brands').select('id, slug, name, image_src, sort_order').order('sort_order'),
@@ -201,6 +202,7 @@ export async function readCatalog(): Promise<CatalogPayload> {
       slug: category.slug,
       name: { he: category.name_he, ar: category.name_ar },
       image: category.image_src ?? '',
+      displayOrder: category.display_order,
       subcategories: (subsByCategory.get(category.id) ?? []).map((item) => ({
         id: item.id,
         name: { he: item.name_he, ar: item.name_ar },
@@ -443,6 +445,7 @@ export const categoryInput = z.object({
   nameHe: textSchema,
   nameAr: optionalText,
   image: storedImage,
+  displayOrder: z.number().int().min(0).max(9_999).nullable().optional(),
 });
 
 export async function createCategory(input: z.infer<typeof categoryInput>) {
@@ -454,6 +457,7 @@ export async function createCategory(input: z.infer<typeof categoryInput>) {
     name_ar: nameAr,
     image_src: input.image,
     sort_order: await nextSort('categories'),
+    display_order: input.displayOrder ?? null,
   });
   check(error);
 }
@@ -466,6 +470,7 @@ export async function updateCategory(id: string, input: Omit<z.infer<typeof cate
       name_he: input.nameHe,
       name_ar: input.nameAr || input.nameHe,
       image_src: input.image,
+      display_order: input.displayOrder ?? null,
     })
     .eq('id', id);
   check(error);

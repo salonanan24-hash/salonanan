@@ -1,7 +1,7 @@
 import { CreditCard, Home, Languages, Truck } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { categoryBySlug, categoryImage, searchProducts, type DemoProduct } from '@/data/catalog';
+import { byDisplayOrder, categoryBySlug, categoryImage, searchProducts, type DemoProduct } from '@/data/catalog';
 import { fill, useI18n } from '@/i18n';
 import { useDevelopmentCatalog } from '@/hooks/use-catalog';
 import { usePageTitle } from '@/hooks/use-page-title';
@@ -111,7 +111,7 @@ function CategoryShortcuts() {
       <div id="categories" className="scroll-mt-40">
         <RuledTitle title={messages.categories.title} />
         <ul className="grid grid-cols-3 gap-x-3 gap-y-6 sm:grid-cols-6 xl:grid-cols-9 xl:gap-x-1">
-          {data.categories.map((category, index) => (
+          {byDisplayOrder(data.categories).map((category, index) => (
             <li key={category.id} className="anan-rise" style={{ animationDelay: `${index * 45}ms` }}>
               <CategoryCard category={category} />
             </li>

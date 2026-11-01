@@ -503,7 +503,23 @@ export type StoreSubcategory = {
 export type StoreCategory = CatalogCategory & {
   image?: string;
   subcategories?: StoreSubcategory[];
+  displayOrder?: number | null;
 };
+
+export function byDisplayOrder<T extends { displayOrder?: number | null }>(items: readonly T[]): T[] {
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((left, right) => {
+      const a = left.item.displayOrder;
+      const b = right.item.displayOrder;
+      const aSet = typeof a === 'number';
+      const bSet = typeof b === 'number';
+      if (aSet && bSet && a !== b) return a - b;
+      if (aSet !== bSet) return aSet ? -1 : 1;
+      return left.index - right.index;
+    })
+    .map((entry) => entry.item);
+}
 
 export type StoreOption = {
   id: string;

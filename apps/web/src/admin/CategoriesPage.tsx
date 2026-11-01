@@ -15,15 +15,16 @@ import {
   Split,
   TextInput,
 } from '@/admin/ui';
+import { byDisplayOrder } from '@/data/catalog';
 import { useI18n } from '@/i18n';
 
-type CategoryDraft = { id: string | null; slug: string; nameHe: string; nameAr: string; image: string };
+type CategoryDraft = { id: string | null; slug: string; nameHe: string; nameAr: string; image: string; displayOrder: string };
 type NamedDraft = { id: string | null; nameHe: string; nameAr: string; image: string };
 type FieldDraft = { id: string | null; nameHe: string; nameAr: string; type: FieldType; section: FieldSection };
 
 const sections: readonly FieldSection[] = ['spec', 'features', 'info'];
 
-const emptyCategory = (): CategoryDraft => ({ id: null, slug: '', nameHe: '', nameAr: '', image: '' });
+const emptyCategory = (): CategoryDraft => ({ id: null, slug: '', nameHe: '', nameAr: '', image: '', displayOrder: '' });
 const emptyNamed = (): NamedDraft => ({ id: null, nameHe: '', nameAr: '', image: '' });
 
 export function CategoriesPage() {
@@ -44,8 +45,10 @@ export function CategoriesPage() {
   const selected = categories.find((item) => item.id === draft.id) ?? null;
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    if (!needle) return categories;
-    return categories.filter((item) => `${item.name.he} ${item.name.ar} ${item.slug}`.toLowerCase().includes(needle));
+    const matched = !needle
+      ? categories
+      : categories.filter((item) => `${item.name.he} ${item.name.ar} ${item.slug}`.toLowerCase().includes(needle));
+    return byDisplayOrder(matched);
   }, [categories, query]);
 
   function open(category: AdminCategory) {
@@ -56,6 +59,7 @@ export function CategoriesPage() {
       nameHe: category.name.he,
       nameAr: category.name.ar,
       image: category.image,
+      displayOrder: category.displayOrder == null ? '' : String(category.displayOrder),
     });
     setSubDraft(emptyNamed());
     setFieldDraft({ ...emptyNamed(), type: 'text', section: 'features' });
@@ -64,12 +68,15 @@ export function CategoriesPage() {
   function onSaveCategory(event: FormEvent) {
     event.preventDefault();
     if (!draft.nameHe.trim()) return;
+    const displayOrder = draft.displayOrder.trim();
+    if (displayOrder !== '' && !/^\d{1,4}$/.test(displayOrder)) return;
     void saveCategory({
       id: draft.id ?? undefined,
       slug: draft.slug,
       nameHe: draft.nameHe,
       nameAr: draft.nameAr,
       image: draft.image,
+      displayOrder: displayOrder === '' ? null : Number(displayOrder),
     })
       .then(() => {
         setDraft(emptyCategory());
@@ -91,7 +98,10 @@ export function CategoriesPage() {
                 <div key={category.id} className="flex items-center gap-3 px-4 py-3">
                   <button type="button" className="min-w-0 flex-1 text-start" onClick={() => open(category)}>
                     <p className="font-bold text-ink">{category.name[locale]}</p>
-                    <p className="text-xs text-muted">{category.slug}</p>
+                    <p className="text-xs text-muted">
+                      {category.slug}
+                      {category.displayOrder == null ? '' : ` · ${category.displayOrder}`}
+                    </p>
                   </button>
                   <IconButton type="button" onClick={() => open(category)} aria-label={copy.edit}>
                     <Pencil className="size-3.5" aria-hidden="true" />
@@ -127,6 +137,14 @@ export function CategoriesPage() {
                 </Field>
                 <Field label={copy.nameAr}>
                   <TextInput value={draft.nameAr} onChange={(event) => setDraft({ ...draft, nameAr: event.target.value })} />
+                </Field>
+                <Field label={copy.displayOrder}>
+                  <TextInput
+                    inputMode="numeric"
+                    value={draft.displayOrder}
+                    onChange={(event) => setDraft({ ...draft, displayOrder: event.target.value.replace(/\D/g, '').slice(0, 4) })}
+                  />
+                  <p className="mt-1.5 text-xs text-muted">{copy.displayOrderHint}</p>
                 </Field>
                 <ImagePick
                   label={copy.image}

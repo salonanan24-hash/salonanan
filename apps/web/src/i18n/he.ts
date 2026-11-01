@@ -596,6 +596,8 @@ export const he = {
       slug: 'מזהה',
       nameHe: 'עברית',
       nameAr: 'ערבית',
+      displayOrder: 'סדר תצוגה',
+      displayOrderHint: 'מספר קטן מופיע קודם בשורת הקטגוריות בדף הבית. אפשר להשאיר ריק.',
       image: 'תמונה',
       changeImage: 'החלפת תמונה',
       removeImage: 'הסרת תמונה',

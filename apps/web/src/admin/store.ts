@@ -33,6 +33,7 @@ type CategoryInput = {
   nameHe: string;
   nameAr: string;
   image: string;
+  displayOrder: number | null;
 };
 
 type BrandInput = {
@@ -93,7 +94,7 @@ function readLocalAdmin(): AdminData | null {
     const state = parsed.state;
     if (!state?.categories?.length && !state?.brands?.length && !state?.products?.length) return null;
     return {
-      categories: state.categories ?? [],
+      categories: (state.categories ?? []).map((category) => ({ ...category, displayOrder: category.displayOrder ?? null })),
       brands: state.brands ?? [],
       products: state.products ?? [],
       coupons: (state.coupons ?? []).map((coupon) => ({
@@ -163,13 +164,13 @@ export const useAdminStore = create<AdminState>()((set, get) => ({
       if (input.id) {
         await adminRequest(`/api/admin/categories/${id}`, {
           method: 'PATCH',
-          body: JSON.stringify({ slug, nameHe, nameAr, image: input.image }),
+          body: JSON.stringify({ slug, nameHe, nameAr, image: input.image, displayOrder: input.displayOrder }),
         });
         set((state) => ({
           saveError: '',
           categories: state.categories.map((category) =>
             category.id === id
-              ? { ...category, slug, name: { he: nameHe, ar: nameAr }, image: input.image }
+              ? { ...category, slug, name: { he: nameHe, ar: nameAr }, image: input.image, displayOrder: input.displayOrder }
               : category,
           ),
         }));
@@ -177,13 +178,14 @@ export const useAdminStore = create<AdminState>()((set, get) => ({
       }
       await adminRequest('/api/admin/categories', {
         method: 'POST',
-        body: JSON.stringify({ id, slug, nameHe, nameAr, image: input.image }),
+        body: JSON.stringify({ id, slug, nameHe, nameAr, image: input.image, displayOrder: input.displayOrder }),
       });
       const category: AdminCategory = {
         id,
         slug,
         name: { he: nameHe, ar: nameAr },
         image: input.image,
+        displayOrder: input.displayOrder,
         subcategories: [],
         fields: [],
       };

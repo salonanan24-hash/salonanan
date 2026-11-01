@@ -2220,7 +2220,7 @@ async function ensureCategory(
     image: '',
   });
   created.category = nameHe;
-  return { id, slug: '', name: { he: nameHe, ar: nameAr }, image: '', subcategories: [], fields: [] };
+  return { id, slug: '', name: { he: nameHe, ar: nameAr }, image: '', displayOrder: null, subcategories: [], fields: [] };
 }
 
 async function ensureSubcategory(proposal: Proposal, category: Category, created: ProductIntake['created']): Promise<string> {
