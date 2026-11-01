@@ -7,6 +7,7 @@ import { ActionToast } from '@/components/ui/ActionToast';
 import { CategoryNav } from './CategoryNav';
 import { Footer } from './Footer';
 import { Header } from './Header';
+import { WelcomeGate } from './WelcomeGate';
 
 export function StoreLayout() {
   const { locale, messages } = useI18n();
@@ -56,6 +57,7 @@ export function StoreLayout() {
         {messages.skip}
       </a>
       <ActionToast />
+      <WelcomeGate />
       <div
         data-store-header
         className={`sticky top-0 z-40 bg-white ${compact ? 'shadow-[0_8px_24px_rgb(23_32_51/0.08)]' : ''}`}

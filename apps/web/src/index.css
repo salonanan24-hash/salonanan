@@ -99,6 +99,112 @@ html[lang='ar'] {
   }
 }
 
+@keyframes anan-intro-ring {
+  from {
+    opacity: 0.55;
+    transform: translate(-50%, -50%) scale(0.42);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.28);
+  }
+}
+
+@keyframes anan-intro-logo {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes anan-intro-line {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes anan-intro-out {
+  to {
+    opacity: 0;
+  }
+}
+
+.anan-intro {
+  background:
+    radial-gradient(circle at center, rgb(12 86 149 / 0.16), transparent 26%),
+    radial-gradient(circle at center, rgb(229 38 41 / 0.08), transparent 42%),
+    #f6f8fb;
+}
+
+.anan-intro.is-leaving {
+  animation: anan-intro-out 0.65s ease forwards;
+}
+
+.anan-intro-ring {
+  position: absolute;
+  top: 46%;
+  left: 50%;
+  width: min(78vw, 38rem);
+  aspect-ratio: 1;
+  border: 1px solid rgb(12 86 149 / 0.14);
+  border-radius: 999px;
+  animation: anan-intro-ring 2.8s ease-out infinite;
+}
+
+.anan-intro-ring:nth-child(2) {
+  border-color: rgb(229 38 41 / 0.12);
+  animation-delay: 0.7s;
+}
+
+.anan-intro-ring:nth-child(3) {
+  animation-delay: 1.4s;
+}
+
+.anan-intro-logo {
+  animation: anan-intro-logo 1.15s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.anan-intro-caption {
+  animation: anan-rise 0.9s 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.anan-intro-line {
+  width: 7.5rem;
+  height: 2px;
+  margin-top: 2.75rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e5e7eb;
+}
+
+.anan-intro-line > span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform-origin: center;
+  background: linear-gradient(90deg, #0c5695, #e52629);
+  animation: anan-intro-line 2.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anan-intro-ring,
+  .anan-intro-logo,
+  .anan-intro-caption,
+  .anan-intro-line > span,
+  .anan-intro.is-leaving {
+    animation: none;
+  }
+}
+
 .anan-rise {
   animation: anan-rise 0.75s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
