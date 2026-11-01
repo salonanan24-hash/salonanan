@@ -3,6 +3,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { nid, useAdminStore } from '@/admin/store';
 import { adminRequest } from '@/admin/remote';
 import { Field, GhostButton, IconButton, PageHeader, Panel, PrimaryButton, SelectInput, TextInput } from '@/admin/ui';
+import { byDisplayOrder } from '@/data/catalog';
 import { useI18n } from '@/i18n';
 import { Trash2 } from 'lucide-react';
 
@@ -27,6 +28,7 @@ export function PackagesPage() {
   const [draft, setDraft] = useState(empty);
   const [query, setQuery] = useState('');
   const [categoryId, setCategoryId] = useState('');
+  const [subcategoryId, setSubcategoryId] = useState('');
   const [brandId, setBrandId] = useState('');
   const [error, setError] = useState('');
   const [open, setOpen] = useState(false);
@@ -44,8 +46,13 @@ export function PackagesPage() {
   }, []);
 
   const needle = query.trim().toLowerCase();
+  const subcategoryOptions = byDisplayOrder(categories.find((item) => item.id === categoryId)?.subcategories ?? []);
   const choices = products.filter((product) => {
     if (categoryId && product.categoryId !== categoryId) return false;
+    if (subcategoryId) {
+      const ids = [product.subcategoryId, ...product.variants.map((variant) => variant.subcategoryId)].filter(Boolean);
+      if (!ids.includes(subcategoryId)) return false;
+    }
     if (brandId && product.brandId !== brandId) return false;
     if (!needle) return true;
     const brand = brands.find((item) => item.id === product.brandId)?.name ?? '';
@@ -140,9 +147,22 @@ export function PackagesPage() {
             </Field>
             <div>
               <p className="text-sm font-semibold text-ink">{copy.products}</p>
-              <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_12rem_12rem]">
-                <TextInput value={query} onChange={(event) => setQuery(event.target.value)} placeholder={copy.search} aria-label={copy.search} />
-                <SelectInput value={categoryId} aria-label={copy.allCategories} onChange={(event) => setCategoryId(event.target.value)}>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <TextInput
+                  className="sm:col-span-2"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder={copy.search}
+                  aria-label={copy.search}
+                />
+                <SelectInput
+                  value={categoryId}
+                  aria-label={copy.allCategories}
+                  onChange={(event) => {
+                    setCategoryId(event.target.value);
+                    setSubcategoryId('');
+                  }}
+                >
                   <option value="">{copy.allCategories}</option>
                   {categories.map((category) => (
                     <option key={category.id} value={category.id}>
@@ -150,6 +170,16 @@ export function PackagesPage() {
                     </option>
                   ))}
                 </SelectInput>
+                {categoryId && subcategoryOptions.length > 0 ? (
+                  <SelectInput value={subcategoryId} aria-label={copy.allSubcategories} onChange={(event) => setSubcategoryId(event.target.value)}>
+                    <option value="">{copy.allSubcategories}</option>
+                    {subcategoryOptions.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name[locale]}
+                      </option>
+                    ))}
+                  </SelectInput>
+                ) : null}
                 <SelectInput value={brandId} aria-label={copy.allBrands} onChange={(event) => setBrandId(event.target.value)}>
                   <option value="">{copy.allBrands}</option>
                   {brands.map((brand) => (

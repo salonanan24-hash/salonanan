@@ -18,6 +18,7 @@ import {
   TextArea,
   TextInput,
 } from '@/admin/ui';
+import { byDisplayOrder } from '@/data/catalog';
 import { fill, useI18n } from '@/i18n';
 
 type DraftVariant = {
@@ -110,6 +111,8 @@ export function ProductsPage() {
   }, [refresh]);
   const [query, setQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [brandFilter, setBrandFilter] = useState('');
+  const [subcategoryFilter, setSubcategoryFilter] = useState('');
   const [error, setError] = useState('');
   const [draft, setDraft] = useState<Draft>(() => blankDraft());
   const [agentModel, setAgentModel] = useState('');
@@ -123,6 +126,11 @@ export function ProductsPage() {
     const needle = query.trim().toLowerCase();
     return products.filter((product) => {
       if (categoryFilter && product.categoryId !== categoryFilter) return false;
+      if (brandFilter && product.brandId !== brandFilter) return false;
+      if (subcategoryFilter) {
+        const ids = [product.subcategoryId, ...product.variants.map((variant) => variant.subcategoryId)].filter(Boolean);
+        if (!ids.includes(subcategoryFilter)) return false;
+      }
       if (!needle) return true;
       const brand = brands.find((item) => item.id === product.brandId)?.name ?? '';
       const productCategory = categories.find((item) => item.id === product.categoryId);
@@ -143,7 +151,9 @@ export function ProductsPage() {
         .toLowerCase();
       return haystack.includes(needle);
     });
-  }, [brands, categories, categoryFilter, products, query]);
+  }, [brandFilter, brands, categories, categoryFilter, products, query, subcategoryFilter]);
+
+  const subcategoryOptions = byDisplayOrder(categories.find((item) => item.id === categoryFilter)?.subcategories ?? []);
 
   function edit(product: AdminProduct) {
     setError('');
@@ -300,11 +310,20 @@ export function ProductsPage() {
         className="lg:grid-cols-2"
         list={
           <div className="space-y-3">
-            <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_12rem]">
-              <SearchBox value={query} onChange={(event) => setQuery(event.target.value)} placeholder={copy.search} aria-label={copy.search} />
+            <div className="grid gap-2 sm:grid-cols-2">
+              <SearchBox
+                className="sm:col-span-2"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={copy.search}
+                aria-label={copy.search}
+              />
               <SelectInput
                 value={categoryFilter}
-                onChange={(event) => setCategoryFilter(event.target.value)}
+                onChange={(event) => {
+                  setCategoryFilter(event.target.value);
+                  setSubcategoryFilter('');
+                }}
                 aria-label={copy.category}
               >
                 <option value="">{copy.allCategories}</option>
@@ -314,6 +333,29 @@ export function ProductsPage() {
                   </option>
                 ))}
               </SelectInput>
+              <SelectInput value={brandFilter} onChange={(event) => setBrandFilter(event.target.value)} aria-label={copy.brand}>
+                <option value="">{copy.allBrands}</option>
+                {brands.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name}
+                  </option>
+                ))}
+              </SelectInput>
+              {categoryFilter && subcategoryOptions.length > 0 ? (
+                <SelectInput
+                  className="sm:col-span-2"
+                  value={subcategoryFilter}
+                  onChange={(event) => setSubcategoryFilter(event.target.value)}
+                  aria-label={copy.subcategory}
+                >
+                  <option value="">{copy.allSubcategories}</option>
+                  {subcategoryOptions.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name[locale]}
+                    </option>
+                  ))}
+                </SelectInput>
+              ) : null}
             </div>
             {filtered.length === 0 ? <EmptyNote>{products.length === 0 ? copy.empty : copy.noMatches}</EmptyNote> : null}
             <ul className="space-y-3">

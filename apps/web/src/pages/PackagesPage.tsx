@@ -2,9 +2,10 @@ import { formatMoney, ils } from '@anan/shared';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { primaryImage, productById, productOptions } from '@/data/catalog';
+import { mixedCatalogFilters } from '@/data/listing';
 import { useDevelopmentCatalog } from '@/hooks/use-catalog';
 import { HomeAds } from '@/components/home/HomeAds';
-import { ProductGrid } from '@/components/product/ProductGrid';
+import { ProductListing } from '@/components/listing/ProductListing';
 import { usePageTitle } from '@/hooks/use-page-title';
 import { useI18n } from '@/i18n';
 import { Container } from '@/components/ui/Container';
@@ -51,7 +52,7 @@ export function PackagesPage() {
       {packages?.length === 0 && marked.length === 0 ? <p className="mt-8 text-sm text-ink">{copy.empty}</p> : null}
       {marked.length > 0 ? (
         <div className="mt-8">
-          <ProductGrid products={marked} />
+          <ProductListing products={marked} filters={mixedCatalogFilters(marked)} />
         </div>
       ) : null}
       <div className="mt-8 space-y-6">

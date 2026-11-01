@@ -2,6 +2,7 @@ import type { LocalizedText } from '@anan/shared';
 import {
   activeCatalog,
   brandById,
+  byDisplayOrder,
   categoryImages,
   type DemoProduct,
 } from '@/data/catalog';
@@ -454,11 +455,38 @@ function presentOptions(filter: MultiFilter, products: readonly DemoProduct[]): 
   };
 }
 
+function subcategoryFilter(slug: string): MultiFilter | null {
+  const category = activeCatalog().categories.find((item) => item.slug === slug);
+  const subs = byDisplayOrder(category?.subcategories ?? []);
+  if (subs.length === 0) return null;
+  return multi('subcat', text('תת־קטגוריה', 'فئة فرعية'), subs.map((item) => ({ value: item.id, label: item.name })), (product, selected) => {
+    const ids = [product.subcategoryId, ...(product.options ?? []).map((option) => option.subcategoryId)].filter(
+      (id): id is string => Boolean(id),
+    );
+    return ids.some((id) => selected.includes(id));
+  });
+}
+
+export function mixedCatalogFilters(products: readonly DemoProduct[]): ListingFilter[] {
+  const slugs = [...new Set(products.map((product) => product.categorySlug))];
+  const filters: ListingFilter[] = [];
+  if (slugs.length > 1) filters.push(categoryFilter(slugs));
+  filters.push(brandFilter(products), priceFilter);
+  return filters.flatMap((filter): ListingFilter[] => {
+    if (filter.kind === 'price') return [filter];
+    const present = presentOptions(filter, products);
+    return present.options.length > 1 ? [present] : [];
+  });
+}
+
 export function listingFilters(slug: string, products: readonly DemoProduct[], selectedSub = ''): ListingFilter[] {
-  const filters =
-    slug === 'televisions'
+  const subcategory = subcategoryFilter(slug);
+  const filters = [
+    ...(subcategory ? [subcategory] : []),
+    ...(slug === 'televisions'
       ? televisionFilters(products, selectedSub)
-      : (landings[slug]?.filters(products) ?? [brandFilter(products), priceFilter]);
+      : (landings[slug]?.filters(products) ?? [brandFilter(products), priceFilter])),
+  ];
   return filters.flatMap((filter): ListingFilter[] => {
     if (filter.kind === 'price') return [filter];
     const present = presentOptions(filter, products);

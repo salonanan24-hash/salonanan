@@ -1,7 +1,8 @@
 import { productOptions } from '@/data/catalog';
+import { mixedCatalogFilters } from '@/data/listing';
 import { useDevelopmentCatalog } from '@/hooks/use-catalog';
 import { usePageTitle } from '@/hooks/use-page-title';
-import { ProductGrid } from '@/components/product/ProductGrid';
+import { ProductListing } from '@/components/listing/ProductListing';
 import { Container } from '@/components/ui/Container';
 import { useI18n } from '@/i18n';
 
@@ -20,7 +21,7 @@ export function SalesPage() {
         {products.length === 0 ? (
           <p className="text-sm text-ink">{copy.empty}</p>
         ) : (
-          <ProductGrid products={products} />
+          <ProductListing products={products} filters={mixedCatalogFilters(products)} />
         )}
       </div>
     </Container>
