@@ -93,19 +93,22 @@ export function ProductCarousel({
     if (!root) return;
     const observer = new ResizeObserver(measure);
     observer.observe(root);
-    let frame = 0;
+    let settleTimer = 0;
+    const scheduleSettle = () => {
+      if (settling.current || dragRef.current?.moved) return;
+      window.clearTimeout(settleTimer);
+      settleTimer = window.setTimeout(() => settleRef.current(), 160);
+    };
     const onScroll = () => {
       measure();
-      if (settling.current) return;
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => settleRef.current());
+      scheduleSettle();
     };
     root.addEventListener('scroll', onScroll, { passive: true });
     root.addEventListener('scrollend', onScroll);
     window.addEventListener('resize', measure);
     return () => {
       observer.disconnect();
-      cancelAnimationFrame(frame);
+      window.clearTimeout(settleTimer);
       root.removeEventListener('scroll', onScroll);
       root.removeEventListener('scrollend', onScroll);
       window.removeEventListener('resize', measure);
@@ -213,8 +216,8 @@ export function ProductCarousel({
   }
 
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
-    if (event.button !== 0) return;
-    if ((event.target as HTMLElement).closest('button')) return;
+    if (event.pointerType !== 'mouse' || event.button !== 0) return;
+    if ((event.target as HTMLElement).closest('button, a')) return;
     dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
   }
 
@@ -304,7 +307,7 @@ export function ProductCarousel({
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
           onDragStart={(event) => event.preventDefault()}
-          className={`@container min-w-0 cursor-grab touch-pan-y overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+          className={`@container min-w-0 cursor-grab touch-manipulation overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
             dragging ? 'cursor-grabbing snap-none' : 'snap-x snap-mandatory scroll-smooth'
           }`}
         >

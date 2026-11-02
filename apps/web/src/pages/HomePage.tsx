@@ -102,7 +102,7 @@ export function HomePage() {
   );
 }
 
-function featuredSelection(products: readonly DemoProduct[], categories: readonly StoreCategory[], limit = 20) {
+function featuredSelection(products: readonly DemoProduct[], categories: readonly StoreCategory[], limit = 30) {
   const grouped = new Map<string, DemoProduct[]>();
   for (const category of byDisplayOrder(categories)) grouped.set(category.slug, []);
   for (const product of products) {
