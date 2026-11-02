@@ -43,6 +43,27 @@ function alignCard(container: HTMLElement, element: HTMLElement, edge: 'start' |
   container.scrollBy({ left: delta, behavior });
 }
 
+/** Move so `to` sits exactly where `from` was. Keeps free scroll offset. */
+function jumpPreserve(container: HTMLElement, from: HTMLElement, to: HTMLElement) {
+  const delta = from.getBoundingClientRect().left - to.getBoundingClientRect().left;
+  if (Math.abs(delta) < 1) return;
+  container.scrollBy({ left: delta, behavior: 'auto' });
+}
+
+function useFreeScroll() {
+  const [free, setFree] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(max-width: 1023px)').matches : true,
+  );
+  useEffect(() => {
+    const query = window.matchMedia('(max-width: 1023px)');
+    const sync = () => setFree(query.matches);
+    sync();
+    query.addEventListener('change', sync);
+    return () => query.removeEventListener('change', sync);
+  }, []);
+  return free;
+}
+
 export function ProductCarousel({
   products,
   title,
@@ -55,6 +76,7 @@ export function ProductCarousel({
   loop = false,
 }: ProductCarouselProps) {
   const { messages } = useI18n();
+  const freeScroll = useFreeScroll();
   const scrollerId = `product-carousel-${useId().replaceAll(':', '')}`;
   const scrollerRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Array<HTMLLIElement | null>>([]);
@@ -68,6 +90,7 @@ export function ProductCarousel({
 
   const looping = loop && products.length > 1;
   const signature = products.map((product) => product.id).join('|');
+  const snapCards = !freeScroll && !looping;
 
   const measure = useCallback(() => {
     const root = scrollerRef.current;
@@ -104,10 +127,10 @@ export function ProductCarousel({
     observer.observe(root);
     let settleTimer = 0;
     const scheduleSettle = () => {
-      if (settling.current || touchActive.current || dragRef.current?.moved) return;
+      if (!looping || settling.current || touchActive.current || dragRef.current?.moved) return;
       if (performance.now() < settleLock.current) return;
       window.clearTimeout(settleTimer);
-      settleTimer = window.setTimeout(() => settleRef.current(), 220);
+      settleTimer = window.setTimeout(() => settleRef.current(), 180);
     };
     const onScroll = () => {
       measure();
@@ -137,19 +160,20 @@ export function ProductCarousel({
       root.removeEventListener('touchcancel', onTouchEnd);
       window.removeEventListener('resize', measure);
     };
-  }, [measure, signature]);
+  }, [measure, signature, looping]);
 
   useLayoutEffect(() => {
     if (!looping) return;
     const root = scrollerRef.current;
-    const element = itemRefs.current[products.length];
-    if (!root || !element) return;
+    const from = itemRefs.current[0];
+    const to = itemRefs.current[products.length];
+    if (!root || !from || !to) return;
     itemRefs.current.length = products.length * 3;
     settling.current = true;
     settleLock.current = performance.now() + 400;
     root.style.scrollBehavior = 'auto';
     root.style.scrollSnapType = 'none';
-    alignCard(root, element, 'start', 'auto');
+    jumpPreserve(root, from, to);
     root.style.scrollBehavior = '';
     root.style.scrollSnapType = '';
     requestAnimationFrame(() => {
@@ -189,13 +213,14 @@ export function ProductCarousel({
     const index = firstVisibleIndex();
     const target = index < count ? index + count : index >= count * 2 ? index - count : index;
     if (target === index) return;
-    const element = itemRefs.current[target];
-    if (!element) return;
+    const from = itemRefs.current[index];
+    const to = itemRefs.current[target];
+    if (!from || !to) return;
     settling.current = true;
     settleLock.current = performance.now() + 450;
     root.style.scrollBehavior = 'auto';
     root.style.scrollSnapType = 'none';
-    alignCard(root, element, 'start', 'auto');
+    jumpPreserve(root, from, to);
     root.style.scrollBehavior = '';
     root.style.scrollSnapType = '';
     requestAnimationFrame(() => {
@@ -209,6 +234,16 @@ export function ProductCarousel({
   function scrollByPage(direction: 1 | -1) {
     const root = scrollerRef.current;
     if (!root) return;
+    settleLock.current = performance.now() + 500;
+
+    if (freeScroll) {
+      const step = Math.max(root.clientWidth * 0.8, 120);
+      const rtl = getComputedStyle(root).direction === 'rtl';
+      const sign = rtl ? -direction : direction;
+      root.scrollBy({ left: sign * step, behavior: motion() });
+      return;
+    }
+
     const count = products.length;
     const span = looping ? count * 3 : count;
     const current = firstVisibleIndex();
@@ -221,7 +256,6 @@ export function ProductCarousel({
     }
     const element = itemRefs.current[target];
     if (!element) return;
-    settleLock.current = performance.now() + 500;
     alignCard(root, element, 'start');
   }
 
@@ -338,13 +372,9 @@ export function ProductCarousel({
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
           onDragStart={(event) => event.preventDefault()}
-          className={`@container min-w-0 cursor-grab touch-manipulation overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
-            dragging
-              ? 'cursor-grabbing snap-none'
-              : looping
-                ? 'snap-none'
-                : 'snap-x snap-mandatory scroll-smooth'
-          }`}
+          className={`@container min-w-0 touch-manipulation overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+            dragging ? 'cursor-grabbing' : 'cursor-grab'
+          } ${snapCards ? 'snap-x snap-mandatory scroll-smooth' : 'snap-none'}`}
         >
           <ul className="flex w-max gap-3 lg:gap-4">
             {(looping ? [0, 1, 2] : [0]).flatMap((cycle) =>
@@ -357,7 +387,7 @@ export function ProductCarousel({
                       itemRefs.current[position] = node;
                     }}
                     aria-hidden={looping && cycle !== 1 ? true : undefined}
-                    className={`shrink-0 ${looping ? '' : 'snap-start'} ${cardWidth[perRow]}`}
+                    className={`shrink-0 ${snapCards ? 'snap-start' : ''} ${cardWidth[perRow]}`}
                   >
                     <ProductCard product={product} />
                   </li>
