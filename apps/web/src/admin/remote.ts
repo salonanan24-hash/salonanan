@@ -1,6 +1,6 @@
 import { getBrowserSupabase } from '@/lib/supabase';
 import { apiBase } from '@/lib/api-url';
-import type { AdminData } from '@/admin/types';
+import type { AdminData, AdminField } from '@/admin/types';
 
 const apiUrl = apiBase();
 
@@ -41,6 +41,7 @@ export async function fillProductFromLink(input: { model: string; notes: string;
     brandId: string;
     categoryId: string;
     subcategoryId: string;
+    fields: AdminField[];
     specs: Record<string, string>;
     specsAr: Record<string, string>;
     price: string;
@@ -72,6 +73,7 @@ export async function fillProductFromLink(input: { model: string; notes: string;
       brandId: string;
       categoryId: string;
       subcategoryId: string;
+      fields: AdminField[];
       specs: Record<string, string>;
       specsAr: Record<string, string>;
       price: string;

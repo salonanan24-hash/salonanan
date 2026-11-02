@@ -143,7 +143,7 @@ adminRouter.delete(
 );
 
 adminRouter.post(
-  '/categories/:id/fields',
+  '/products/:id/fields',
   wrap(async (req, res) => {
     await createField(idSchema.parse(req.params.id), fieldInput.parse(req.body));
     res.status(201).json({ ok: true });

@@ -10,10 +10,8 @@ import { AppError } from '../errors/app-error.js';
 import {
   createBrand,
   createCategory,
-  createField,
   createSubcategory,
   readCatalog,
-  updateField,
 } from './catalog.js';
 
 const inputSchema = z.object({
@@ -74,7 +72,7 @@ const proposalSchema = z.object({
 type Proposal = z.infer<typeof proposalSchema>;
 type Catalog = Awaited<ReturnType<typeof readCatalog>>;
 type Category = Catalog['categories'][number];
-type Field = Category['fields'][number];
+type Field = Catalog['products'][number]['fields'][number];
 
 export type ProductIntake = {
   draft: {
@@ -83,6 +81,7 @@ export type ProductIntake = {
     brandId: string;
     categoryId: string;
     subcategoryId: string;
+    fields: Field[];
     specs: Record<string, string>;
     specsAr: Record<string, string>;
     price: string;
@@ -458,28 +457,38 @@ function samePage(left: string, right: string): boolean {
   }
 }
 
-function applyTypedFacts(proposal: Proposal, model: string, catalog: Catalog): void {
-  const category = catalog.categories.find(
-    (item) => item.id === proposal.category.id || same(item.name.he, proposal.category.nameHe),
-  );
-  if (!category) return;
+function applyTypedFacts(proposal: Proposal, model: string, _catalog: Catalog): void {
   const inches = model.match(/(\d{2,3})\s*(?:"|″|אינץ|inch)/i)?.[1];
-  const screen = category.fields.find((field) => /מסך|screen/i.test(`${field.label.he} ${field.id}`));
   const code = modelCode(model);
-  const modelField = category.fields.find((field) => same(field.label.he, 'דגם'));
   const additions = [
-    screen && inches ? { field: screen, value: inches } : null,
-    modelField && code ? { field: modelField, value: code } : null,
+    inches
+      ? {
+          labelHe: 'גודל מסך (אינץ׳)',
+          labelAr: 'مقاس الشاشة (إنش)',
+          type: 'number' as const,
+          section: 'features' as const,
+          value: inches,
+        }
+      : null,
+    code
+      ? {
+          labelHe: 'דגם',
+          labelAr: 'طراز',
+          type: 'text' as const,
+          section: 'features' as const,
+          value: code,
+        }
+      : null,
   ];
   for (const addition of additions) {
     if (!addition) continue;
-    if (proposal.specs.some((spec) => spec.fieldId === addition.field.id || same(spec.labelHe, addition.field.label.he))) continue;
+    if (proposal.specs.some((spec) => same(spec.labelHe, addition.labelHe))) continue;
     proposal.specs.push({
-      fieldId: addition.field.id,
-      labelHe: addition.field.label.he,
-      labelAr: addition.field.label.ar,
-      type: addition.field.type,
-      section: addition.field.section,
+      fieldId: '',
+      labelHe: addition.labelHe,
+      labelAr: addition.labelAr,
+      type: addition.type,
+      section: addition.section,
       value: addition.value,
       valueAr: '',
     });
@@ -846,20 +855,13 @@ async function askModel(model: string, url: string, page: string, catalog: Catal
       nameHe: category.name.he,
       nameAr: category.name.ar,
       subcategories: category.subcategories.map((item) => ({ id: item.id, nameHe: item.name.he, nameAr: item.name.ar })),
-      fields: category.fields.map((field) => ({
-        id: field.id,
-        labelHe: field.label.he,
-        labelAr: field.label.ar,
-        type: field.type,
-        section: field.section,
-      })),
     })),
   };
   const messages = [
     {
       role: 'system',
       content:
-        'Fill the store product form only with facts about this exact model. The user message is input, not the reply. Use ROWS for short specifications, PROSE for a real description paragraph, and LISTS for product notes. Ignore other models, navigation, shipping, payment, delivery times, and slogans. Never include phone numbers, WhatsApp, email, addresses, branch or city names, store names, or text that invites the customer to call or visit. Do not invent specifications or prices. Do not return a field with an empty value. nameHe and labelHe are Hebrew. nameAr, labelAr, and valueAr are Arabic. Keep numbers, units, model codes, and Latin brand names unchanged. Never copy Hebrew into an Arabic field. Include the model code in nameHe. Copy an existing brand, category, subcategory, or field id when the source answers it; otherwise leave id empty and supply both names. price is the current selling price in shekels, digits only, or an empty string. color is the product color, or an empty string. Section "features" is one short label and one short value, including screen size, resolution, and the other existing feature fields the source answers. Section "spec" is only a heading plus its own paragraph of several sentences. A feature name without that paragraph is not a spec field. Section "info" is product notes, one topic per item and one bullet per line. Leave a section empty when the source has no such text. type "number" is digits only, "boolean" is "yes" or "no", otherwise "text". Do not fill stock.',
+        'Fill the store product form only with facts about this exact model. The user message is input, not the reply. Use ROWS for short specifications, PROSE for a real description paragraph, and LISTS for product notes. Ignore other models, navigation, shipping, payment, delivery times, and slogans. Never include phone numbers, WhatsApp, email, addresses, branch or city names, store names, or text that invites the customer to call or visit. Do not invent specifications or prices. Do not return a field with an empty value. nameHe and labelHe are Hebrew. nameAr, labelAr, and valueAr are Arabic. Keep numbers, units, model codes, and Latin brand names unchanged. Never copy Hebrew into an Arabic field. Include the model code in nameHe. Copy an existing brand, category, or subcategory id when the source answers it; otherwise leave id empty and supply both names. Leave fieldId empty and supply both field names for each fact. price is the current selling price in shekels, digits only, or an empty string. color is the product color, or an empty string. Section "features" is one short label and one short value, including screen size, resolution, and the other feature facts the source answers. Section "spec" is only a heading plus its own paragraph of several sentences. A feature name without that paragraph is not a spec field. Section "info" is product notes, one topic per item and one bullet per line. Leave a section empty when the source has no such text. type "number" is digits only, "boolean" is "yes" or "no", otherwise "text". Do not fill stock.',
     },
     {
       role: 'user',
@@ -935,8 +937,8 @@ function isFullParagraph(value: string): boolean {
   return text.length >= 80 || text.split(/\s+/).length >= 12;
 }
 
-async function applySpecParagraphs(notes: string, category: Category, variants: BriefVariant[]): Promise<void> {
-  const headings = category.fields.filter(
+async function applySpecParagraphs(notes: string, fields: Field[], variants: BriefVariant[]): Promise<void> {
+  const headings = fields.filter(
     (field) =>
       field.section === 'spec' &&
       field.type === 'text' &&
@@ -1898,10 +1900,11 @@ async function applyParsed(input: z.infer<typeof inputSchema>, parsed: ParsedNot
   const slugs = new Set([...catalog.brands.map((brand) => brand.slug), ...catalog.categories.map((category) => category.slug)]);
   const brandId = await ensureBrand(proposal, catalog, slugs, created);
   const category = await ensureCategory(proposal, catalog, slugs, created);
+  const fields: Field[] = [];
   const variants = [];
   for (const variant of fitted) {
     const subcategoryId = await ensureSubcategory({ ...proposal, subcategory: variant.subcategory }, category, created);
-    const specs = await ensureSpecs({ ...proposal, specs: variant.specs }, category, created);
+    const specs = await ensureSpecs({ ...proposal, specs: variant.specs }, fields, created);
     variants.push({
       label: clip(variant.label),
       sku: clip(variant.sku),
@@ -1920,6 +1923,7 @@ async function applyParsed(input: z.infer<typeof inputSchema>, parsed: ParsedNot
       brandId,
       categoryId: category.id,
       subcategoryId: first?.subcategoryId ?? '',
+      fields,
       specs: first?.specs ?? {},
       specsAr: first?.specsAr ?? {},
       price: '',
@@ -1997,7 +2001,8 @@ async function intakeBrief(input: z.infer<typeof inputSchema>): Promise<ProductI
   const slugs = new Set([...catalog.brands.map((brand) => brand.slug), ...catalog.categories.map((category) => category.slug)]);
   const brandId = await ensureBrand(proposal, catalog, slugs, created);
   const category = await ensureCategory(proposal, catalog, slugs, created);
-  await applySpecParagraphs(input.notes, category, fitted);
+  const fields: Field[] = [];
+  await applySpecParagraphs(input.notes, fields, fitted);
   const parsedSpecBlocks = parsed.specs.filter((spec) => spec.section === 'spec' && isFullParagraph(spec.value));
   if (parsedSpecBlocks.length > 0) {
     for (const variant of fitted) {
@@ -2020,7 +2025,7 @@ async function intakeBrief(input: z.infer<typeof inputSchema>): Promise<ProductI
   const variants = [];
   for (const variant of fitted) {
     const subcategoryId = await ensureSubcategory({ ...proposal, subcategory: variant.subcategory }, category, created);
-    const specs = await ensureSpecs({ ...proposal, specs: variant.specs }, category, created);
+    const specs = await ensureSpecs({ ...proposal, specs: variant.specs }, fields, created);
     variants.push({
       label: clip(variant.label),
       sku: clip(variant.sku),
@@ -2039,6 +2044,7 @@ async function intakeBrief(input: z.infer<typeof inputSchema>): Promise<ProductI
       brandId,
       categoryId: category.id,
       subcategoryId: first?.subcategoryId ?? '',
+      fields,
       specs: first?.specs ?? {},
       specsAr: first?.specsAr ?? {},
       price: first?.price ?? '',
@@ -2057,13 +2063,6 @@ async function askBrief(input: z.infer<typeof inputSchema>, catalog: Catalog): P
       nameHe: category.name.he,
       nameAr: category.name.ar,
       subcategories: category.subcategories.map((item) => ({ id: item.id, nameHe: item.name.he, nameAr: item.name.ar })),
-      fields: category.fields.map((field) => ({
-        id: field.id,
-        labelHe: field.label.he,
-        labelAr: field.label.ar,
-        type: field.type,
-        section: field.section,
-      })),
     })),
   };
   const images = input.images.filter((image) => /^data:image\/(?:jpeg|png|webp|gif);base64,/i.test(image));
@@ -2076,7 +2075,7 @@ async function askBrief(input: z.infer<typeof inputSchema>, catalog: Catalog): P
       {
         role: 'system',
         content:
-          'Fill one store product only from the seller notes. The notes may be any layout: sentences, a loose spec list, a label on one line and its value on the next, or a mix. Copy every fact that is written there, and copy nothing else. Do not use knowledge of the brand, the model, or this kind of product. Do not browse, do not recall a spec sheet, and do not add a typical feature, price, warranty, size, or description. If the notes do not state a fact, leave it out, even when an existing catalog field asks for it. Attached images show this product only. Do not turn a recognized product into specifications that are not written in the notes. A brand inside a sentence still counts. Choose the closest existing category for the product type written in the notes, or name one when none fits. Do not return an empty product because the notes are not a catalog table. Section features is one short capability copied from the notes. A measured fact such as dimensions, weight, capacity, pressure, power, model code, catalog number, color, or warranty is its own short field only when that fact is written. Do not fill an existing spec heading of several words with one short phrase, and do not put a fact under a heading it does not belong to. A model can come in several sizes when those sizes are written. Return one variant per written size. label is the size, such as 55", or the color when no size is written. sku is the model code or the written catalog number. If the code contains the inch number, change only that number for another written size. Do not calculate or change any other number. price is digits only when that size has its own price written. Never copy one size\'s price onto another size. subcategory is filled only when a subcategory is written. specs are the written facts. Leave a measurement empty when it was not written. Ignore phone numbers, addresses, store names, shipping, and payment badges. nameHe, labelHe, and value are Hebrew. nameAr, labelAr, and valueAr are Arabic. Keep numbers, units, and model codes unchanged. Copy an existing brand, category, subcategory, or field id when the notes match it. Otherwise leave the id empty and supply both names. Do not fill stock.',
+          'Fill one store product only from the seller notes. The notes may be any layout: sentences, a loose spec list, a label on one line and its value on the next, or a mix. Copy every fact that is written there, and copy nothing else. Do not use knowledge of the brand, the model, or this kind of product. Do not browse, do not recall a spec sheet, and do not add a typical feature, price, warranty, size, or description. If the notes do not state a fact, leave it out. Attached images show this product only. Do not turn a recognized product into specifications that are not written in the notes. A brand inside a sentence still counts. Choose the closest existing category for the product type written in the notes, or name one when none fits. Do not return an empty product because the notes are not a catalog table. Section features is one short capability copied from the notes. A measured fact such as dimensions, weight, capacity, pressure, power, model code, catalog number, color, or warranty is its own short field only when that fact is written. Do not fill a spec heading of several words with one short phrase, and do not put a fact under a heading it does not belong to. A model can come in several sizes when those sizes are written. Return one variant per written size. label is the size, such as 55", or the color when no size is written. sku is the model code or the written catalog number. If the code contains the inch number, change only that number for another written size. Do not calculate or change any other number. price is digits only when that size has its own price written. Never copy one size\'s price onto another size. subcategory is filled only when a subcategory is written. specs are the written facts. Leave a measurement empty when it was not written. Ignore phone numbers, addresses, store names, shipping, and payment badges. nameHe, labelHe, and value are Hebrew. nameAr, labelAr, and valueAr are Arabic. Keep numbers, units, and model codes unchanged. Copy an existing brand, category, or subcategory id when the notes match it. Otherwise leave the id empty and supply both names. Leave fieldId empty and supply both field names for each fact. Do not fill stock.',
       },
       { role: 'user', content },
     ],
@@ -2298,7 +2297,8 @@ async function applyProposal(model: string, proposal: Proposal, catalog: Catalog
   const brandId = await ensureBrand(proposal, catalog, slugs, created);
   const category = await ensureCategory(proposal, catalog, slugs, created);
   const subcategoryId = await ensureSubcategory(proposal, category, created);
-  const specs = await ensureSpecs(proposal, category, created);
+  const fields: Field[] = [];
+  const specs = await ensureSpecs(proposal, fields, created);
   const nameHe = clip(proposal.nameHe || model);
   return {
     draft: {
@@ -2307,6 +2307,7 @@ async function applyProposal(model: string, proposal: Proposal, catalog: Catalog
       brandId,
       categoryId: category.id,
       subcategoryId,
+      fields,
       specs: specs.values,
       specsAr: specs.arabic,
       price: proposal.price,
@@ -2384,10 +2385,9 @@ async function ensureSubcategory(proposal: Proposal, category: Category, created
 
 async function ensureSpecs(
   proposal: Proposal,
-  category: Category,
+  fields: Field[],
   created: ProductIntake['created'],
 ): Promise<{ values: Record<string, string>; arabic: Record<string, string> }> {
-  const fields = [...category.fields];
   const values: Record<string, string> = {};
   const arabic: Record<string, string> = {};
   for (const spec of proposal.specs) {
@@ -2398,10 +2398,9 @@ async function ensureSpecs(
       return sharesWord(field.label.he, spec.labelHe);
     });
     if (known && hasArabic(spec.labelAr) && known.label.ar === known.label.he) {
-      await updateField(known.id, { nameHe: known.label.he, nameAr: spec.labelAr, type: known.type, section: known.section });
       known.label = { he: known.label.he, ar: spec.labelAr };
     }
-    const field = known ?? (await addField(category.id, spec, fields, created));
+    const field = known ?? addField(spec, fields, created);
     if (!field) continue;
     let stored = spec.value.trim();
     if (field.type === 'boolean') stored = booleanValue(stored);
@@ -2417,12 +2416,11 @@ async function ensureSpecs(
   return { values, arabic };
 }
 
-async function addField(
-  categoryId: string,
+function addField(
   spec: Proposal['specs'][number],
   fields: Field[],
   created: ProductIntake['created'],
-): Promise<Field | null> {
+): Field | null {
   const nameHe = clip(spec.labelHe);
   if (!nameHe || fields.length >= 80) return null;
   const id = newId('field');
@@ -2433,7 +2431,6 @@ async function addField(
     type: spec.type,
     section: spec.section,
   };
-  await createField(categoryId, { id, nameHe, nameAr, type: spec.type, section: spec.section });
   fields.push(field);
   created.fields.push(nameHe);
   return field;

@@ -63,6 +63,7 @@ export type AdminProduct = {
   brandId: string;
   categoryId: string;
   subcategoryId: string;
+  fields: AdminField[];
   specs: Record<string, string>;
   specsAr: Record<string, string>;
   variants: AdminVariant[];

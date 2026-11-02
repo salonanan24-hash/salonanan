@@ -2,7 +2,7 @@ import { Pencil, Trash2 } from 'lucide-react';
 import { useMemo, useState, type FormEvent } from 'react';
 import { readResizedImages } from '@/admin/images';
 import { useAdminStore } from '@/admin/store';
-import type { AdminCategory, AdminField, FieldSection, FieldType } from '@/admin/types';
+import type { AdminCategory } from '@/admin/types';
 import {
   EmptyNote,
   Field,
@@ -11,7 +11,6 @@ import {
   Panel,
   PrimaryButton,
   SearchBox,
-  SelectInput,
   Split,
   TextInput,
 } from '@/admin/ui';
@@ -20,9 +19,6 @@ import { useI18n } from '@/i18n';
 
 type CategoryDraft = { id: string | null; slug: string; nameHe: string; nameAr: string; image: string; displayOrder: string };
 type NamedDraft = { id: string | null; nameHe: string; nameAr: string; image: string; displayOrder: string };
-type FieldDraft = { id: string | null; nameHe: string; nameAr: string; type: FieldType; section: FieldSection };
-
-const sections: readonly FieldSection[] = ['spec', 'features', 'info'];
 
 const emptyCategory = (): CategoryDraft => ({ id: null, slug: '', nameHe: '', nameAr: '', image: '', displayOrder: '' });
 const emptyNamed = (): NamedDraft => ({ id: null, nameHe: '', nameAr: '', image: '', displayOrder: '' });
@@ -35,12 +31,10 @@ export function CategoriesPage() {
   const removeCategory = useAdminStore((state) => state.removeCategory);
   const saveSubcategory = useAdminStore((state) => state.saveSubcategory);
   const removeSubcategory = useAdminStore((state) => state.removeSubcategory);
-  const removeField = useAdminStore((state) => state.removeField);
   const [query, setQuery] = useState('');
   const [notice, setNotice] = useState('');
   const [draft, setDraft] = useState<CategoryDraft>(emptyCategory);
   const [subDraft, setSubDraft] = useState<NamedDraft>(emptyNamed);
-  const [fieldDraft, setFieldDraft] = useState<FieldDraft>({ ...emptyNamed(), type: 'text', section: 'features' });
 
   const selected = categories.find((item) => item.id === draft.id) ?? null;
   const filtered = useMemo(() => {
@@ -62,7 +56,6 @@ export function CategoriesPage() {
       displayOrder: category.displayOrder == null ? '' : String(category.displayOrder),
     });
     setSubDraft(emptyNamed());
-    setFieldDraft({ ...emptyNamed(), type: 'text', section: 'features' });
   }
 
   function onSaveCategory(event: FormEvent) {
@@ -161,114 +154,100 @@ export function CategoriesPage() {
               {notice ? <p className="mt-3 text-sm font-semibold anan-accent-text">{notice}</p> : null}
             </Panel>
             {selected ? (
-              <>
-                <Panel>
-                  <h2 className="text-lg font-extrabold">{copy.subs}</h2>
-                  <p className="mt-1 text-sm text-muted">{selected.name[locale]}</p>
-                  <ul className="mt-3 divide-y divide-line">
-                    {byDisplayOrder(selected.subcategories).map((item) => (
-                      <li key={item.id} className="flex items-center gap-2 py-2">
-                        {item.image ? (
-                          <img src={item.image} alt="" className="h-10 w-10 rounded-lg object-contain" />
-                        ) : (
-                          <span className="h-10 w-10 rounded-lg bg-[#f3f5f8]" />
-                        )}
-                        <span className="min-w-0 flex-1 text-sm font-semibold">
-                          {item.name[locale]}
-                          {item.displayOrder == null ? '' : ` · ${item.displayOrder}`}
-                        </span>
-                        <IconButton
-                          type="button"
-                          aria-label={copy.edit}
-                          onClick={() =>
-                            setSubDraft({
-                              id: item.id,
-                              nameHe: item.name.he,
-                              nameAr: item.name.ar,
-                              image: item.image,
-                              displayOrder: item.displayOrder == null ? '' : String(item.displayOrder),
-                            })
-                          }
-                        >
-                          <Pencil className="size-3.5" aria-hidden="true" />
-                        </IconButton>
-                        <IconButton
-                          type="button"
-                          aria-label={copy.remove}
-                          onClick={() => void removeSubcategory(selected.id, item.id)}
-                        >
-                          <Trash2 className="size-3.5" aria-hidden="true" />
-                        </IconButton>
-                      </li>
-                    ))}
-                  </ul>
-                  <form
-                    className="mt-3 space-y-3"
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      if (!subDraft.nameHe.trim()) return;
-                      const displayOrder = subDraft.displayOrder.trim();
-                      if (displayOrder !== '' && !/^\d{1,4}$/.test(displayOrder)) return;
-                      void saveSubcategory(selected.id, {
-                        id: subDraft.id ?? undefined,
-                        nameHe: subDraft.nameHe,
-                        nameAr: subDraft.nameAr,
-                        image: subDraft.image,
-                        displayOrder: displayOrder === '' ? null : Number(displayOrder),
-                      })
-                        .then(() => setSubDraft(emptyNamed()))
-                        .catch(() => setNotice(messages.desk.saveFailed));
-                    }}
-                  >
-                    <Field label={subDraft.id ? copy.editSub : copy.addSub}>
-                      <TextInput
-                        value={subDraft.nameHe}
-                        placeholder={copy.nameHe}
-                        onChange={(event) => setSubDraft({ ...subDraft, nameHe: event.target.value })}
-                      />
-                    </Field>
-                    <TextInput
-                      value={subDraft.nameAr}
-                      placeholder={copy.nameAr}
-                      aria-label={copy.nameAr}
-                      onChange={(event) => setSubDraft({ ...subDraft, nameAr: event.target.value })}
-                    />
-                    <Field label={copy.displayOrder}>
-                      <TextInput
-                        inputMode="numeric"
-                        value={subDraft.displayOrder}
-                        onChange={(event) =>
-                          setSubDraft({ ...subDraft, displayOrder: event.target.value.replace(/\D/g, '').slice(0, 4) })
+              <Panel>
+                <h2 className="text-lg font-extrabold">{copy.subs}</h2>
+                <p className="mt-1 text-sm text-muted">{selected.name[locale]}</p>
+                <ul className="mt-3 divide-y divide-line">
+                  {byDisplayOrder(selected.subcategories).map((item) => (
+                    <li key={item.id} className="flex items-center gap-2 py-2">
+                      {item.image ? (
+                        <img src={item.image} alt="" className="h-10 w-10 rounded-lg object-contain" />
+                      ) : (
+                        <span className="h-10 w-10 rounded-lg bg-[#f3f5f8]" />
+                      )}
+                      <span className="min-w-0 flex-1 text-sm font-semibold">
+                        {item.name[locale]}
+                        {item.displayOrder == null ? '' : ` · ${item.displayOrder}`}
+                      </span>
+                      <IconButton
+                        type="button"
+                        aria-label={copy.edit}
+                        onClick={() =>
+                          setSubDraft({
+                            id: item.id,
+                            nameHe: item.name.he,
+                            nameAr: item.name.ar,
+                            image: item.image,
+                            displayOrder: item.displayOrder == null ? '' : String(item.displayOrder),
+                          })
                         }
-                      />
-                      <p className="mt-1.5 text-xs text-muted">{copy.subDisplayOrderHint}</p>
-                    </Field>
-                    <ImagePick
-                      label={copy.image}
-                      hint={copy.imageHint}
-                      value={subDraft.image}
-                      changeLabel={copy.changeImage}
-                      removeLabel={copy.removeImage}
-                      onChange={(image) => setSubDraft({ ...subDraft, image })}
+                      >
+                        <Pencil className="size-3.5" aria-hidden="true" />
+                      </IconButton>
+                      <IconButton
+                        type="button"
+                        aria-label={copy.remove}
+                        onClick={() => void removeSubcategory(selected.id, item.id)}
+                      >
+                        <Trash2 className="size-3.5" aria-hidden="true" />
+                      </IconButton>
+                    </li>
+                  ))}
+                </ul>
+                <form
+                  className="mt-3 space-y-3"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (!subDraft.nameHe.trim()) return;
+                    const displayOrder = subDraft.displayOrder.trim();
+                    if (displayOrder !== '' && !/^\d{1,4}$/.test(displayOrder)) return;
+                    void saveSubcategory(selected.id, {
+                      id: subDraft.id ?? undefined,
+                      nameHe: subDraft.nameHe,
+                      nameAr: subDraft.nameAr,
+                      image: subDraft.image,
+                      displayOrder: displayOrder === '' ? null : Number(displayOrder),
+                    })
+                      .then(() => setSubDraft(emptyNamed()))
+                      .catch(() => setNotice(messages.desk.saveFailed));
+                  }}
+                >
+                  <Field label={subDraft.id ? copy.editSub : copy.addSub}>
+                    <TextInput
+                      value={subDraft.nameHe}
+                      placeholder={copy.nameHe}
+                      onChange={(event) => setSubDraft({ ...subDraft, nameHe: event.target.value })}
                     />
-                    <PrimaryButton type="submit" className="w-full">
-                      {copy.save}
-                    </PrimaryButton>
-                  </form>
-                </Panel>
-                {sections.map((section) => (
-                  <FieldPanel
-                    key={section}
-                    section={section}
-                    categoryId={selected.id}
-                    fields={selected.fields.filter((item) => (item.section ?? 'features') === section)}
-                    draft={fieldDraft}
-                    setDraft={setFieldDraft}
-                    onRemove={(fieldId) => void removeField(selected.id, fieldId)}
-                    onError={() => setNotice(messages.desk.saveFailed)}
+                  </Field>
+                  <TextInput
+                    value={subDraft.nameAr}
+                    placeholder={copy.nameAr}
+                    aria-label={copy.nameAr}
+                    onChange={(event) => setSubDraft({ ...subDraft, nameAr: event.target.value })}
                   />
-                ))}
-              </>
+                  <Field label={copy.displayOrder}>
+                    <TextInput
+                      inputMode="numeric"
+                      value={subDraft.displayOrder}
+                      onChange={(event) =>
+                        setSubDraft({ ...subDraft, displayOrder: event.target.value.replace(/\D/g, '').slice(0, 4) })
+                      }
+                    />
+                    <p className="mt-1.5 text-xs text-muted">{copy.subDisplayOrderHint}</p>
+                  </Field>
+                  <ImagePick
+                    label={copy.image}
+                    hint={copy.imageHint}
+                    value={subDraft.image}
+                    changeLabel={copy.changeImage}
+                    removeLabel={copy.removeImage}
+                    onChange={(image) => setSubDraft({ ...subDraft, image })}
+                  />
+                  <PrimaryButton type="submit" className="w-full">
+                    {copy.save}
+                  </PrimaryButton>
+                </form>
+              </Panel>
             ) : (
               <EmptyNote>{copy.pick}</EmptyNote>
             )}
@@ -323,110 +302,5 @@ function ImagePick({
         ) : null}
       </div>
     </div>
-  );
-}
-
-function FieldPanel({
-  section,
-  categoryId,
-  fields,
-  draft,
-  setDraft,
-  onRemove,
-  onError,
-}: {
-  section: FieldSection;
-  categoryId: string;
-  fields: AdminField[];
-  draft: FieldDraft;
-  setDraft: (draft: FieldDraft) => void;
-  onRemove: (fieldId: string) => void;
-  onError: () => void;
-}) {
-  const { locale, messages } = useI18n();
-  const copy = messages.desk.categories;
-  const saveField = useAdminStore((state) => state.saveField);
-  const active = draft.section === section;
-  const title = section === 'spec' ? copy.sectionSpec : section === 'features' ? copy.sectionFeatures : copy.sectionInfo;
-  const hint = section === 'spec' ? copy.sectionSpecHint : section === 'features' ? copy.sectionFeaturesHint : copy.sectionInfoHint;
-  const current: FieldDraft = active ? draft : { ...emptyNamed(), type: 'text', section };
-
-  return (
-    <Panel>
-      <h2 className="text-lg font-extrabold">{title}</h2>
-      <p className="mt-1 text-sm leading-6 text-muted">{hint}</p>
-      <ul className="mt-3 divide-y divide-line">
-        {fields.map((item) => (
-          <li key={item.id} className="flex items-center gap-2 py-2">
-            <span className="min-w-0 flex-1 text-sm">
-              <span className="font-semibold">{item.label[locale]}</span>
-              {section === 'features' ? <span className="ms-2 text-xs text-muted">{copy[item.type]}</span> : null}
-            </span>
-            <IconButton
-              type="button"
-              aria-label={copy.edit}
-              onClick={() =>
-                setDraft({
-                  id: item.id,
-                  nameHe: item.label.he,
-                  nameAr: item.label.ar,
-                  type: item.type,
-                  section,
-                })
-              }
-            >
-              <Pencil className="size-3.5" aria-hidden="true" />
-            </IconButton>
-            <IconButton type="button" aria-label={copy.remove} onClick={() => onRemove(item.id)}>
-              <Trash2 className="size-3.5" aria-hidden="true" />
-            </IconButton>
-          </li>
-        ))}
-      </ul>
-      <form
-        className="mt-3 space-y-3"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!current.nameHe.trim()) return;
-          void saveField(categoryId, {
-            id: current.id ?? undefined,
-            nameHe: current.nameHe,
-            nameAr: current.nameAr,
-            type: section === 'features' ? current.type : 'text',
-            section,
-          })
-            .then(() => setDraft({ ...emptyNamed(), type: 'text', section }))
-            .catch(onError);
-        }}
-      >
-        <Field label={current.id ? copy.editField : copy.addField}>
-          <TextInput
-            value={current.nameHe}
-            placeholder={copy.nameHe}
-            onChange={(event) => setDraft({ ...current, nameHe: event.target.value, section })}
-          />
-        </Field>
-        <TextInput
-          value={current.nameAr}
-          placeholder={copy.nameAr}
-          aria-label={copy.nameAr}
-          onChange={(event) => setDraft({ ...current, nameAr: event.target.value, section })}
-        />
-        {section === 'features' ? (
-          <SelectInput
-            aria-label={copy.fieldType}
-            value={current.type}
-            onChange={(event) => setDraft({ ...current, type: event.target.value as FieldType, section })}
-          >
-            <option value="text">{copy.text}</option>
-            <option value="number">{copy.number}</option>
-            <option value="boolean">{copy.boolean}</option>
-          </SelectInput>
-        ) : null}
-        <PrimaryButton type="submit" className="w-full">
-          {copy.save}
-        </PrimaryButton>
-      </form>
-    </Panel>
   );
 }

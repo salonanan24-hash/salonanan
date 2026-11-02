@@ -75,6 +75,13 @@ const variantSchema = z.object({
   images: z.array(imageSchema).max(12),
 });
 
+const fieldSchema = z.object({
+  id: idSchema,
+  label: localized,
+  type: fieldTypeSchema,
+  section: fieldSectionSchema.default('features'),
+});
+
 const productSchema = z.object({
   id: idSchema,
   name: localized,
@@ -82,6 +89,7 @@ const productSchema = z.object({
   brandId: idSchema,
   categoryId: idSchema,
   subcategoryId: z.string().max(80),
+  fields: z.array(fieldSchema).max(80).default([]),
   specs: specMap,
   specsAr: z.record(z.string().max(8_000)).default({}),
   variants: z.array(variantSchema).max(20),
@@ -106,16 +114,7 @@ const catalogSchema = z.object({
             }),
           )
           .max(40),
-        fields: z
-          .array(
-            z.object({
-              id: idSchema,
-              label: localized,
-              type: fieldTypeSchema,
-              section: fieldSectionSchema.default('features'),
-            }),
-          )
-          .max(80),
+        fields: z.array(fieldSchema).max(80).default([]),
       }),
     )
     .max(80),
@@ -181,7 +180,7 @@ export async function readCatalog(): Promise<CatalogPayload> {
     await Promise.all([
       client.from('categories').select('id, slug, name_he, name_ar, image_src, sort_order, display_order').order('sort_order'),
       client.from('subcategories').select('id, category_id, name_he, name_ar, image_src, sort_order, display_order').order('sort_order'),
-      client.from('category_fields').select('id, category_id, label_he, label_ar, field_type, section, sort_order').order('sort_order'),
+      client.from('product_fields').select('id, product_id, label_he, label_ar, field_type, section, sort_order').order('sort_order'),
       client.from('brands').select('id, slug, name, image_src, sort_order').order('sort_order'),
       client.from('products').select('id, name_he, name_ar, price_minor, brand_id, category_id, subcategory_id, sort_order').order('sort_order'),
       client.from('product_specs').select('product_id, field_id, value, value_ar'),
@@ -199,7 +198,7 @@ export async function readCatalog(): Promise<CatalogPayload> {
   }
 
   const subsByCategory = group(subcategories.data ?? [], (row) => row.category_id);
-  const fieldsByCategory = group(fields.data ?? [], (row) => row.category_id);
+  const fieldsByProduct = group(fields.data ?? [], (row) => row.product_id);
   const specsByProduct = group(specs.data ?? [], (row) => row.product_id);
   const imagesByVariant = group(images.data ?? [], (row) => row.variant_id);
   const specsByVariant = group(variantSpecs.data ?? [], (row) => row.variant_id);
@@ -218,12 +217,7 @@ export async function readCatalog(): Promise<CatalogPayload> {
         image: item.image_src ?? '',
         displayOrder: item.display_order,
       })),
-      fields: (fieldsByCategory.get(category.id) ?? []).map((item) => ({
-        id: item.id,
-        label: { he: item.label_he, ar: item.label_ar },
-        type: item.field_type as 'text' | 'number' | 'boolean',
-        section: item.section === 'spec' || item.section === 'info' ? item.section : 'features',
-      })),
+      fields: [],
     })),
     brands: (brands.data ?? []).map((brand) => ({
       id: brand.id,
@@ -238,6 +232,12 @@ export async function readCatalog(): Promise<CatalogPayload> {
       brandId: product.brand_id,
       categoryId: product.category_id,
       subcategoryId: product.subcategory_id ?? '',
+      fields: (fieldsByProduct.get(product.id) ?? []).map((item) => ({
+        id: item.id,
+        label: { he: item.label_he, ar: item.label_ar },
+        type: item.field_type as 'text' | 'number' | 'boolean',
+        section: item.section === 'spec' || item.section === 'info' ? item.section : 'features',
+      })),
       specs: Object.fromEntries((specsByProduct.get(product.id) ?? []).map((item) => [item.field_id, item.value])),
       specsAr: Object.fromEntries(
         (specsByProduct.get(product.id) ?? [])
@@ -346,19 +346,6 @@ export async function importCatalog(input: CatalogPayload): Promise<CatalogPaylo
   );
   if (subcategories.length > 0) check((await client.from('subcategories').insert(subcategories)).error);
 
-  const fields = input.categories.flatMap((category) =>
-    category.fields.map((item, index) => ({
-      id: item.id,
-      category_id: category.id,
-      label_he: item.label.he,
-      label_ar: item.label.ar,
-      field_type: item.type,
-      section: item.section,
-      sort_order: index,
-    })),
-  );
-  if (fields.length > 0) check((await client.from('category_fields').insert(fields)).error);
-
   if (input.products.length > 0) {
     check(
       (
@@ -377,6 +364,19 @@ export async function importCatalog(input: CatalogPayload): Promise<CatalogPaylo
       ).error,
     );
   }
+
+  const fields = input.products.flatMap((product) =>
+    product.fields.map((item, index) => ({
+      id: item.id,
+      product_id: product.id,
+      label_he: item.label.he,
+      label_ar: item.label.ar,
+      field_type: item.type,
+      section: item.section,
+      sort_order: index,
+    })),
+  );
+  if (fields.length > 0) check((await client.from('product_fields').insert(fields)).error);
 
   const variants = input.products.flatMap((product) =>
     product.variants.map((variant, index) => ({
@@ -439,11 +439,22 @@ async function nextSort(table: 'categories' | 'brands' | 'products' | 'coupons')
   return (data?.[0]?.sort_order ?? 0) - 1;
 }
 
-async function nextChildSort(table: 'subcategories' | 'category_fields', categoryId: string): Promise<number> {
+async function nextChildSort(table: 'subcategories', categoryId: string): Promise<number> {
   const { data, error } = await db()
     .from(table)
     .select('sort_order')
     .eq('category_id', categoryId)
+    .order('sort_order', { ascending: false })
+    .limit(1);
+  check(error);
+  return (data?.[0]?.sort_order ?? -1) + 1;
+}
+
+async function nextProductFieldSort(productId: string): Promise<number> {
+  const { data, error } = await db()
+    .from('product_fields')
+    .select('sort_order')
+    .eq('product_id', productId)
     .order('sort_order', { ascending: false })
     .limit(1);
   check(error);
@@ -542,22 +553,22 @@ export const fieldInput = namedInput.extend({
   section: fieldSectionSchema.default('features'),
 });
 
-export async function createField(categoryId: string, input: z.infer<typeof fieldInput>) {
-  const { error } = await db().from('category_fields').insert({
+export async function createField(productId: string, input: z.infer<typeof fieldInput>) {
+  const { error } = await db().from('product_fields').insert({
     id: input.id,
-    category_id: categoryId,
+    product_id: productId,
     label_he: input.nameHe,
     label_ar: input.nameAr || input.nameHe,
     field_type: input.type,
     section: input.section,
-    sort_order: await nextChildSort('category_fields', categoryId),
+    sort_order: await nextProductFieldSort(productId),
   });
   check(error);
 }
 
 export async function updateField(id: string, input: Omit<z.infer<typeof fieldInput>, 'id'>) {
   const { error } = await db()
-    .from('category_fields')
+    .from('product_fields')
     .update({
       label_he: input.nameHe,
       label_ar: input.nameAr || input.nameHe,
@@ -569,7 +580,7 @@ export async function updateField(id: string, input: Omit<z.infer<typeof fieldIn
 }
 
 export async function deleteField(id: string) {
-  const { error } = await db().from('category_fields').delete().eq('id', id);
+  const { error } = await db().from('product_fields').delete().eq('id', id);
   check(error);
 }
 
@@ -624,6 +635,25 @@ export async function saveProduct(input: z.infer<typeof productSchema>) {
   check((await client.from('products').upsert(row)).error);
   check((await client.from('product_specs').delete().eq('product_id', input.id)).error);
   check((await client.from('product_variants').delete().eq('product_id', input.id)).error);
+  check((await client.from('product_fields').delete().eq('product_id', input.id)).error);
+
+  if (input.fields.length > 0) {
+    check(
+      (
+        await client.from('product_fields').insert(
+          input.fields.map((field, index) => ({
+            id: field.id,
+            product_id: input.id,
+            label_he: field.label.he,
+            label_ar: field.label.ar,
+            field_type: field.type,
+            section: field.section,
+            sort_order: index,
+          })),
+        )
+      ).error,
+    );
+  }
 
   if (input.variants.length > 0) {
     check(

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { readResizedImages } from '@/admin/images';
 import { fillProductFromLink } from '@/admin/remote';
 import { nid, useAdminStore } from '@/admin/store';
-import type { AdminField, AdminProduct, AdminVariant, FieldSection } from '@/admin/types';
+import type { AdminField, AdminProduct, AdminVariant, FieldSection, FieldType } from '@/admin/types';
 import {
   EmptyNote,
   Field,
@@ -42,9 +42,24 @@ type Draft = {
   nameAr: string;
   brandId: string;
   categoryId: string;
+  fields: AdminField[];
   images: { id: string; src: string }[];
   variants: DraftVariant[];
 };
+
+type FieldDraft = {
+  id: string | null;
+  nameHe: string;
+  nameAr: string;
+  type: FieldType;
+  section: FieldSection;
+};
+
+const fieldSections: readonly FieldSection[] = ['spec', 'features', 'info'];
+
+function emptyFieldDraft(section: FieldSection = 'features'): FieldDraft {
+  return { id: null, nameHe: '', nameAr: '', type: 'text', section };
+}
 
 function blankVariant(): DraftVariant {
   return {
@@ -70,6 +85,7 @@ function blankDraft(brandId = '', categoryId = ''): Draft {
     nameAr: '',
     brandId,
     categoryId,
+    fields: [],
     images: [],
     variants: [blankVariant()],
   };
@@ -120,6 +136,7 @@ export function ProductsPage() {
   const [agentFiles, setAgentFiles] = useState<File[]>([]);
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentNote, setAgentNote] = useState('');
+  const [fieldDraft, setFieldDraft] = useState<FieldDraft>(emptyFieldDraft);
 
   const category = categories.find((item) => item.id === draft.categoryId);
   const filtered = useMemo(() => {
@@ -157,15 +174,46 @@ export function ProductsPage() {
 
   function edit(product: AdminProduct) {
     setError('');
+    setFieldDraft(emptyFieldDraft());
     setDraft({
       id: product.id,
       nameHe: product.name.he,
       nameAr: product.name.ar,
       brandId: product.brandId,
       categoryId: product.categoryId,
+      fields: product.fields ?? [],
       images: product.variants.flatMap((variant) => variant.images).filter((image, index, list) => list.findIndex((item) => item.src === image.src) === index),
       variants: product.variants.length > 0 ? product.variants.map((variant) => variantFromProduct(product, variant)) : [blankVariant()],
     });
+  }
+
+  function saveFieldDraft(nextDraft: FieldDraft = fieldDraft) {
+    const nameHe = nextDraft.nameHe.trim();
+    if (!nameHe) return;
+    const nameAr = nextDraft.nameAr.trim() || nameHe;
+    const type = nextDraft.section === 'features' ? nextDraft.type : 'text';
+    const id = nextDraft.id ?? nid('field');
+    setDraft((current) => {
+      const next: AdminField = { id, label: { he: nameHe, ar: nameAr }, type, section: nextDraft.section };
+      const fields = nextDraft.id
+        ? current.fields.map((item) => (item.id === id ? next : item))
+        : [...current.fields, next];
+      return { ...current, fields };
+    });
+    setFieldDraft(emptyFieldDraft(nextDraft.section));
+  }
+
+  function removeField(fieldId: string) {
+    setDraft((current) => ({
+      ...current,
+      fields: current.fields.filter((item) => item.id !== fieldId),
+      variants: current.variants.map((variant) => ({
+        ...variant,
+        specs: Object.fromEntries(Object.entries(variant.specs).filter(([key]) => key !== fieldId)),
+        specsAr: Object.fromEntries(Object.entries(variant.specsAr).filter(([key]) => key !== fieldId)),
+      })),
+    }));
+    if (fieldDraft.id === fieldId) setFieldDraft(emptyFieldDraft(fieldDraft.section));
   }
 
   function onCategory(categoryId: string) {
@@ -224,6 +272,7 @@ export function ProductsPage() {
           nameAr: result.draft.nameAr,
           brandId: result.draft.brandId,
           categoryId: result.draft.categoryId,
+          fields: result.draft.fields ?? [],
           images: sources.length > 0 ? sources.map((src) => ({ id: nid('img'), src })) : current.images,
           variants: filled.map((variant) => ({
             ...blankVariant(),
@@ -236,6 +285,7 @@ export function ProductsPage() {
           })),
         };
       });
+      setFieldDraft(emptyFieldDraft());
       const added = [result.created.brand, result.created.category, result.created.subcategory, ...result.created.fields].filter(
         (item): item is string => Boolean(item),
       );
@@ -250,7 +300,7 @@ export function ProductsPage() {
 
   function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const allowed = new Set(category?.fields.map((item) => item.id) ?? []);
+    const allowed = new Set(draft.fields.map((item) => item.id));
     const variants = draft.variants.map((variant) => {
       const specs = Object.fromEntries(Object.entries(variant.specs).filter(([key, value]) => allowed.has(key) && value.trim() !== ''));
       const specsAr = Object.fromEntries(
@@ -277,6 +327,7 @@ export function ProductsPage() {
       brandId: draft.brandId,
       categoryId: draft.categoryId,
       subcategoryId: first?.subcategoryId ?? '',
+      fields: draft.fields,
       specs: first?.specs ?? {},
       specsAr: first?.specsAr ?? {},
       variants: variants.map((variant, index) => ({
@@ -298,6 +349,7 @@ export function ProductsPage() {
     saveProduct(product)
       .then(() => {
         setError('');
+        setFieldDraft(emptyFieldDraft());
         setDraft(blankDraft(draft.brandId, draft.categoryId));
       })
       .catch(() => setError(messages.desk.saveFailed));
@@ -490,8 +542,16 @@ export function ProductsPage() {
                   />
                 </label>
               </div>
+              <ProductFieldManager
+                fields={draft.fields}
+                draft={fieldDraft}
+                setDraft={setFieldDraft}
+                onSave={saveFieldDraft}
+                onRemove={removeField}
+              />
               <VariantEditor
                 category={category}
+                fields={draft.fields}
                 variants={draft.variants}
                 onChange={updateVariant}
                 onAdd={() => setDraft({ ...draft, variants: [...draft.variants, blankVariant()] })}
@@ -509,6 +569,7 @@ export function ProductsPage() {
                   className="h-11 rounded-xl px-3 text-sm font-semibold text-muted"
                   onClick={() => {
                     setDraft(blankDraft());
+                    setFieldDraft(emptyFieldDraft());
                     setError('');
                   }}
                 >
@@ -523,14 +584,116 @@ export function ProductsPage() {
   );
 }
 
+function ProductFieldManager({
+  fields,
+  draft,
+  setDraft,
+  onSave,
+  onRemove,
+}: {
+  fields: AdminField[];
+  draft: FieldDraft;
+  setDraft: (draft: FieldDraft) => void;
+  onSave: (next: FieldDraft) => void;
+  onRemove: (fieldId: string) => void;
+}) {
+  const { locale, messages } = useI18n();
+  const copy = messages.desk.products;
+  return (
+    <div className="space-y-3 rounded-2xl border border-line p-3">
+      <div>
+        <h3 className="text-sm font-extrabold">{copy.specs}</h3>
+        <p className="mt-1 text-xs leading-5 text-muted">{fields.length === 0 ? copy.noSpecs : copy.variantHint}</p>
+      </div>
+      {fieldSections.map((section) => {
+        const sectionFields = fields.filter((item) => (item.section ?? 'features') === section);
+        const title = section === 'spec' ? copy.spec : section === 'features' ? copy.features : copy.info;
+        const hint =
+          section === 'spec' ? copy.sectionSpecHint : section === 'features' ? copy.sectionFeaturesHint : copy.sectionInfoHint;
+        const active = draft.section === section;
+        const current = active ? draft : emptyFieldDraft(section);
+        return (
+          <div key={section} className="rounded-2xl bg-[#f6f8fb] p-3">
+            <p className="text-sm font-extrabold text-ink">{title}</p>
+            <p className="mt-1 text-xs leading-5 text-muted">{hint}</p>
+            <ul className="mt-2 divide-y divide-line">
+              {sectionFields.map((item) => (
+                <li key={item.id} className="flex items-center gap-2 py-2">
+                  <span className="min-w-0 flex-1 text-sm">
+                    <span className="font-semibold">{item.label[locale]}</span>
+                    {section === 'features' ? (
+                      <span className="ms-2 text-xs text-muted">
+                        {item.type === 'number' ? copy.fieldNumber : item.type === 'boolean' ? copy.fieldBoolean : copy.fieldText}
+                      </span>
+                    ) : null}
+                  </span>
+                  <IconButton
+                    type="button"
+                    aria-label={copy.editField}
+                    onClick={() =>
+                      setDraft({
+                        id: item.id,
+                        nameHe: item.label.he,
+                        nameAr: item.label.ar,
+                        type: item.type,
+                        section,
+                      })
+                    }
+                  >
+                    <Pencil className="size-3.5" aria-hidden="true" />
+                  </IconButton>
+                  <IconButton type="button" aria-label={copy.removeField} onClick={() => onRemove(item.id)}>
+                    <Trash2 className="size-3.5" aria-hidden="true" />
+                  </IconButton>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-3 space-y-2">
+              <Field label={current.id ? copy.editField : copy.addField}>
+                <TextInput
+                  value={current.nameHe}
+                  placeholder={copy.fieldNameHe}
+                  onChange={(event) => setDraft({ ...current, nameHe: event.target.value, section })}
+                />
+              </Field>
+              <TextInput
+                value={current.nameAr}
+                placeholder={copy.fieldNameAr}
+                aria-label={copy.fieldNameAr}
+                onChange={(event) => setDraft({ ...current, nameAr: event.target.value, section })}
+              />
+              {section === 'features' ? (
+                <SelectInput
+                  aria-label={copy.fieldType}
+                  value={current.type}
+                  onChange={(event) => setDraft({ ...current, type: event.target.value as FieldType, section })}
+                >
+                  <option value="text">{copy.fieldText}</option>
+                  <option value="number">{copy.fieldNumber}</option>
+                  <option value="boolean">{copy.fieldBoolean}</option>
+                </SelectInput>
+              ) : null}
+              <PrimaryButton type="button" className="w-full" onClick={() => onSave({ ...current, section })}>
+                {copy.save}
+              </PrimaryButton>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function VariantEditor({
   category,
+  fields,
   variants,
   onChange,
   onAdd,
   onRemove,
 }: {
-  category: { subcategories: { id: string; name: { he: string; ar: string } }[]; fields: AdminField[] } | undefined;
+  category: { subcategories: { id: string; name: { he: string; ar: string } }[] } | undefined;
+  fields: AdminField[];
   variants: DraftVariant[];
   onChange: (id: string, patch: Partial<DraftVariant>) => void;
   onAdd: () => void;
@@ -629,17 +792,15 @@ function VariantEditor({
               </Field>
             </div>
           ) : null}
-          {category && category.fields.length > 0 ? (
+          {fields.length > 0 ? (
             <div className="mt-3 space-y-4 rounded-2xl bg-[#f6f8fb] p-3">
-              {(['spec', 'features', 'info'] as const).map((section) => {
-                const sectionFields = category.fields.filter((item) => (item.section ?? 'features') === section);
-                const filled = sectionFields.filter((item) => (variant.specs[item.id] ?? '').trim());
-                const hasValues = Object.values(variant.specs).some((value) => value.trim());
+              {fieldSections.map((section) => {
+                const sectionFields = fields.filter((item) => (item.section ?? 'features') === section);
                 return (
                   <ProductFields
                     key={section}
                     section={section}
-                    fields={hasValues ? filled : sectionFields}
+                    fields={sectionFields}
                     specs={variant.specs}
                     specsAr={variant.specsAr}
                     onChange={(id, value) => onChange(variant.id, { specs: { ...variant.specs, [id]: value } })}

@@ -58,10 +58,10 @@ type AdminState = AdminData & {
   ) => Promise<void>;
   removeSubcategory: (categoryId: string, subcategoryId: string) => Promise<void>;
   saveField: (
-    categoryId: string,
+    productId: string,
     input: { id?: string; nameHe: string; nameAr: string; type: FieldType; section: FieldSection },
   ) => Promise<void>;
-  removeField: (categoryId: string, fieldId: string) => Promise<void>;
+  removeField: (productId: string, fieldId: string) => Promise<void>;
   saveBrand: (input: BrandInput) => Promise<void>;
   removeBrand: (id: string) => Promise<boolean>;
   saveProduct: (product: AdminProduct) => Promise<void>;
@@ -100,7 +100,10 @@ function readLocalAdmin(): AdminData | null {
         subcategories: (category.subcategories ?? []).map((item) => ({ ...item, displayOrder: item.displayOrder ?? null })),
       })),
       brands: state.brands ?? [],
-      products: state.products ?? [],
+      products: (state.products ?? []).map((product) => ({
+        ...product,
+        fields: product.fields ?? [],
+      })),
       coupons: (state.coupons ?? []).map((coupon) => ({
         ...coupon,
         scope: coupon.scope ?? 'site',
@@ -277,7 +280,7 @@ export const useAdminStore = create<AdminState>()((set, get) => ({
       ),
     }));
   },
-  saveField: async (categoryId, input) => {
+  saveField: async (productId, input) => {
     const nameHe = input.nameHe.trim();
     const nameAr = input.nameAr.trim() || nameHe;
     const id = input.id ?? nid('field');
@@ -288,7 +291,7 @@ export const useAdminStore = create<AdminState>()((set, get) => ({
           body: JSON.stringify({ nameHe, nameAr, type: input.type, section: input.section }),
         });
       } else {
-        await adminRequest(`/api/admin/categories/${categoryId}/fields`, {
+        await adminRequest(`/api/admin/products/${productId}/fields`, {
           method: 'POST',
           body: JSON.stringify({ id, nameHe, nameAr, type: input.type, section: input.section }),
         });
@@ -299,12 +302,12 @@ export const useAdminStore = create<AdminState>()((set, get) => ({
     }
     set((state) => ({
       saveError: '',
-      categories: state.categories.map((category) => {
-        if (category.id !== categoryId) return category;
+      products: state.products.map((product) => {
+        if (product.id !== productId) return product;
         if (input.id) {
           return {
-            ...category,
-            fields: category.fields.map((item) =>
+            ...product,
+            fields: product.fields.map((item) =>
               item.id === id
                 ? { ...item, label: { he: nameHe, ar: nameAr }, type: input.type, section: input.section }
                 : item,
@@ -317,11 +320,11 @@ export const useAdminStore = create<AdminState>()((set, get) => ({
           type: input.type,
           section: input.section,
         };
-        return { ...category, fields: [...category.fields, created] };
+        return { ...product, fields: [...product.fields, created] };
       }),
     }));
   },
-  removeField: async (categoryId, fieldId) => {
+  removeField: async (productId, fieldId) => {
     try {
       await adminRequest(`/api/admin/fields/${fieldId}`, { method: 'DELETE' });
     } catch (error) {
@@ -330,10 +333,20 @@ export const useAdminStore = create<AdminState>()((set, get) => ({
     }
     set((state) => ({
       saveError: '',
-      categories: state.categories.map((category) =>
-        category.id === categoryId
-          ? { ...category, fields: category.fields.filter((item) => item.id !== fieldId) }
-          : category,
+      products: state.products.map((product) =>
+        product.id === productId
+          ? {
+              ...product,
+              fields: product.fields.filter((item) => item.id !== fieldId),
+              specs: Object.fromEntries(Object.entries(product.specs).filter(([key]) => key !== fieldId)),
+              specsAr: Object.fromEntries(Object.entries(product.specsAr).filter(([key]) => key !== fieldId)),
+              variants: product.variants.map((variant) => ({
+                ...variant,
+                specs: Object.fromEntries(Object.entries(variant.specs).filter(([key]) => key !== fieldId)),
+                specsAr: Object.fromEntries(Object.entries(variant.specsAr).filter(([key]) => key !== fieldId)),
+              })),
+            }
+          : product,
       ),
     }));
   },

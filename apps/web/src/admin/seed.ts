@@ -87,6 +87,9 @@ function specsFor(slug: string, attributes: DemoAttributes): Record<string, stri
 
 function toProduct(product: DemoProduct): AdminProduct {
   const sub = productSubcategory(product);
+  const specs = specsFor(product.categorySlug, product.attributes);
+  const catalogFields = categoryFields[product.categorySlug] ?? [];
+  const fields = catalogFields.filter((item) => specs[item.id] !== undefined);
   return {
     id: product.id,
     name: product.name,
@@ -94,7 +97,8 @@ function toProduct(product: DemoProduct): AdminProduct {
     brandId: product.brandId,
     categoryId: `cat-${product.categorySlug}`,
     subcategoryId: sub && !sub.id.startsWith('category-') ? sub.id : '',
-    specs: specsFor(product.categorySlug, product.attributes),
+    fields,
+    specs,
     specsAr: {},
     variants: [
       {
@@ -126,7 +130,7 @@ export function seedAdmin(): AdminData {
     image: '',
     displayOrder: null,
     subcategories: subcategoriesFor(category.slug),
-    fields: categoryFields[category.slug] ?? [],
+    fields: [],
   }));
 
   return {

@@ -101,14 +101,14 @@ function imagesFrom(product: CatalogPayload['products'][number]): StoreImage[] {
 function detailsFrom(
   specs: Record<string, string>,
   specsAr: Record<string, string>,
-  category: CatalogPayload['categories'][number],
+  fields: CatalogPayload['products'][number]['fields'],
 ) {
   const details = {
     spec: [] as { label: { he: string; ar: string }; value: { he: string; ar: string } }[],
     features: [] as { label: { he: string; ar: string }; value: { he: string; ar: string } }[],
     info: [] as { label: { he: string; ar: string }; value: { he: string; ar: string } }[],
   };
-  for (const field of category.fields) {
+  for (const field of fields) {
     const he = specs[field.id]?.trim() ?? '';
     const ar = specsAr[field.id]?.trim() || he;
     if (!he && !ar) continue;
@@ -193,7 +193,7 @@ export function toStorefront(catalog: CatalogPayload) {
             onSale: variant.onSale,
             inPackages: variant.inPackages,
             screenInches: screenInches(specs.specs, variant.color),
-            details: detailsFrom(specs.specs, specs.specsAr, category),
+            details: detailsFrom(specs.specs, specs.specsAr, product.fields),
           };
         });
       const amounts = options.map((option) => option.price.amountMinor);
@@ -215,7 +215,7 @@ export function toStorefront(catalog: CatalogPayload) {
           developmentFixture: false,
           images: imagesFrom(product),
           attributes: attributesFrom(leadSpecs.specs),
-          details: lead?.details ?? detailsFrom(product.specs, product.specsAr, category),
+          details: lead?.details ?? detailsFrom(product.specs, product.specsAr, product.fields),
           options,
         },
       ];
