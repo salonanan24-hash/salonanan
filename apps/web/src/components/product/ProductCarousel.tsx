@@ -88,7 +88,8 @@ export function ProductCarousel({
   const [edges, setEdges] = useState({ prev: false, next: false, overflow: false });
   const [dragging, setDragging] = useState(false);
 
-  const looping = loop && products.length > 1;
+  // Infinite loop jumps fight free finger scrolling on phones and yank the row back.
+  const looping = loop && !freeScroll && products.length > 1;
   const signature = products.map((product) => product.id).join('|');
   const snapCards = !freeScroll && !looping;
 
