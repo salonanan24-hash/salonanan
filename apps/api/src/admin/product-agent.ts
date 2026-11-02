@@ -936,11 +936,21 @@ function isFullParagraph(value: string): boolean {
 }
 
 async function applySpecParagraphs(notes: string, category: Category, variants: BriefVariant[]): Promise<void> {
-  const headings = category.fields.filter((field) => field.section === 'spec' && field.type === 'text' && headingWords(field.label.he) >= 3);
-  if (!notes.trim() || headings.length === 0) return;
-  const paragraphs = (await writeSpecParagraphs(notes, headings)).filter(
-    (item) => !item.value.trim() || supportedFact(item.value, notes),
+  const headings = category.fields.filter(
+    (field) =>
+      field.section === 'spec' &&
+      field.type === 'text' &&
+      (headingWords(field.label.he) >= 3 || fold(field.label.he) === 'מפרט'),
   );
+  if (!notes.trim() || headings.length === 0) return;
+  const paragraphs = (await writeSpecParagraphs(notes, headings))
+    .map((item) => ({ ...item, value: completeFromSource(item.value, notes) }))
+    .filter((item) => {
+      const value = item.value.trim();
+      if (!value) return true;
+      if (startsMidSentence(value)) return false;
+      return supportedFact(value, notes);
+    });
   for (const variant of variants) variant.specs = mergeParagraphs(variant.specs, headings, paragraphs);
 }
 
@@ -950,7 +960,7 @@ async function writeSpecParagraphs(notes: string, headings: Field[]): Promise<Ar
       [
         {
           role: 'system',
-          content: `${reminder}Fill each specification heading by copying sentences from the seller notes only. Do not use knowledge of the product. Do not summarize, do not shorten a sentence to a few words, and do not leave out a relevant sentence that is written. A heading of several words needs the written description that belongs to it, not one detail and not a fact from another subject. If the notes do not discuss a heading, return an empty value. If a sentence is not in the notes, do not write it. value is Hebrew. valueAr is Arabic. Keep numbers, units, and model codes unchanged.`,
+          content: `${reminder}Fill each specification heading by copying sentences from the seller notes only. Copy whole sentences from the start of the sentence, never from the middle. Do not begin with a continuation such as "על מידע זה" or "בהתבסס על" unless that is the real start of the sentence in the notes. Do not use knowledge of the product. Do not summarize, do not shorten, and do not leave out a relevant sentence that is written. If the notes do not discuss a heading, return an empty value. If a sentence is not in the notes, do not write it. value is Hebrew. valueAr is Arabic. Keep numbers, units, and model codes unchanged.`,
         },
         {
           role: 'user',
@@ -1515,10 +1525,17 @@ function parseNotes(model: string, notes: string): ParsedNotes {
       context = '';
       continue;
     }
+    const scopeLabel = line.match(/^((?:מידות\s+)?(?:ללא|עם|כולל)\s+מעמד)\s*:?\s*$/);
+    if (scopeLabel?.[1]) {
+      flush();
+      context = scopeLabel[1].replace(/\s+/g, ' ').trim();
+      heading = '';
+      continue;
+    }
     if (featureMode) {
       const row = splitRow(line);
       if (row) {
-        if (takeMeasure(row.label, row.value, pendingLabel, measureLines, measureFields)) continue;
+        if (takeMeasure(row.label, row.value, pendingLabel || context, measureLines, measureFields)) continue;
         if (pendingLabel) context = pendingLabel;
         remember(row.label, row.value, 'features');
         pendingLabel = '';
@@ -1526,11 +1543,27 @@ function parseNotes(model: string, notes: string): ParsedNotes {
       }
       if (pendingLabel === 'מידות') pendingLabel = '';
       if (pendingLabel) {
+        if (takeMeasure(pendingLabel, line, context, measureLines, measureFields)) {
+          pendingLabel = '';
+          continue;
+        }
         remember(pendingLabel, line, 'features');
         pendingLabel = '';
         continue;
       }
       if (line.length <= 40) pendingLabel = line;
+      continue;
+    }
+    const upcoming = lines[index + 1] ?? '';
+    const stacked = stackedPair(line, upcoming);
+    if (stacked) {
+      flush();
+      if (takeMeasure(stacked.label, stacked.value, context, measureLines, measureFields)) {
+        index += 1;
+        continue;
+      }
+      remember(stacked.label, stacked.value, 'features');
+      index += 1;
       continue;
     }
     const row = splitRow(line);
@@ -1552,7 +1585,6 @@ function parseNotes(model: string, notes: string): ParsedNotes {
       nameHe = line;
       continue;
     }
-    const upcoming = lines[index + 1] ?? '';
     const upcomingIsList = isShortLine(upcoming) && !isSentence(upcoming) && !splitRow(upcoming);
     if (heading && paragraph.length === 0 && bullets.length > 0 && isShortLine(line) && !isSentence(line) && line.length <= 40 && upcomingIsList) {
       bullets.push(line);
@@ -1572,11 +1604,16 @@ function parseNotes(model: string, notes: string): ParsedNotes {
   flush();
 
   context = '';
-  if (measureLines.length > 0 && !specs.some((spec) => spec.labelHe === 'מידות')) {
-    remember('מידות', measureLines.join('\n'), 'features');
+  if (measureLines.length > 0) {
+    const summary = measureLines.join('\n');
+    const existing = specs.find((spec) => spec.labelHe === 'מידות');
+    if (existing) existing.value = summary;
+    else remember('מידות', summary, 'features');
   }
   for (const field of measureFields) {
-    if (!specs.some((spec) => same(spec.labelHe, field.label))) remember(field.label, field.value, 'features');
+    const existing = specs.find((spec) => same(spec.labelHe, field.label));
+    if (existing) existing.value = field.value;
+    else remember(field.label, field.value, 'features');
   }
   if (measures.length > 0 && !specs.some((spec) => spec.labelHe === 'מידות')) {
     const summary = ['ללא מעמד', 'כולל מעמד']
@@ -1628,6 +1665,64 @@ function splitRow(line: string): { label: string; value: string } | null {
   return { label, value: match[2].trim() };
 }
 
+function stackedPair(label: string, value: string): { label: string; value: string } | null {
+  const cleanLabel = label.trim();
+  const cleanValue = value.trim();
+  if (!cleanLabel || !cleanValue || splitRow(cleanLabel) || splitRow(cleanValue)) return null;
+  if (isLongLine(cleanLabel) || isSentence(cleanLabel) || cleanLabel.length > 48) return null;
+  if (isLongLine(cleanValue) && cleanValue.length > 80) return null;
+  if (/^(?:מותג|דגם|מק.?ט|צבע|מערכת הפעלה|טכנולוגיה|סוג רזולוציה|גודל מסך|סוג תצוגה)/.test(cleanLabel)) {
+    return { label: cleanLabel, value: cleanValue };
+  }
+  if (/(?:רוחב|גובה|עומק).*(?:מעמד|ס"מ|ס״מ)/.test(cleanLabel) && /^\d/.test(cleanValue)) {
+    return { label: cleanLabel, value: cleanValue };
+  }
+  return null;
+}
+
+function startsMidSentence(value: string): boolean {
+  return /^(?:על מידע זה|בהתבסס על(?:\s+מידע)?|הוא מספק|היא מספקת|כדי לספק|וכן |וגם )/u.test(value.trim());
+}
+
+function completeFromSource(value: string, source: string): string {
+  const text = value.trim();
+  if (!text) return '';
+  const hay = source.replace(/\r/g, '');
+  let at = -1;
+  for (let len = Math.min(text.length, 160); len >= 24; len -= 1) {
+    const found = hay.indexOf(text.slice(0, len));
+    if (found >= 0) {
+      at = found;
+      break;
+    }
+  }
+  if (at < 0) return startsMidSentence(text) ? '' : text;
+  let start = at;
+  while (start > 0) {
+    const previousBreak = hay.lastIndexOf('\n', start - 1);
+    const lineStart = previousBreak + 1;
+    const previous = hay.slice(lineStart, start).trim();
+    if (!previous) {
+      start = lineStart;
+      break;
+    }
+    if (isTitle(previous) || (!isLongLine(previous) && !isSentence(previous) && previous.length <= 48)) break;
+    start = lineStart;
+  }
+  let end = Math.max(at + text.length, at + 24);
+  while (end < hay.length) {
+    const nextBreak = hay.indexOf('\n', end);
+    const lineEnd = nextBreak < 0 ? hay.length : nextBreak;
+    const next = hay.slice(end, lineEnd).replace(/^\n/, '').trim();
+    if (!next) break;
+    if (isTitle(next) && !isLongLine(next) && !isSentence(next)) break;
+    if (/^(?:תצוגה|עיבוד|גיימינג|סאונד|כניסות|מידות|מק.?ט|דגם|מותג|תכונות)/.test(next)) break;
+    end = nextBreak < 0 ? hay.length : nextBreak + 1;
+    if (end - start > 1_800) break;
+  }
+  return hay.slice(start, end).trim();
+}
+
 function isShortLine(line: string): boolean {
   return line.length >= 2 && line.length <= 80 && line.split(/\s+/).length <= 10 && !isLongLine(line);
 }
@@ -1668,15 +1763,22 @@ function takeMeasure(
   const inline = /מידות|vesa/i.test(label);
   const part = Boolean(stand && /^(?:רוחב|גובה|עומק|משקל)/.test(label));
   if (!inline && !part) return false;
-  const summary = inline ? `${label}: ${value}` : `${stand}: ${measureName(label)} ${value}`;
+  const kind = label.match(/^(רוחב|גובה|עומק)/)?.[1] ?? '';
+  const summary = inline ? `${label}: ${value}` : `${stand}: ${kind || measureName(label)} ${value}`;
   if (!lines.includes(summary)) lines.push(summary);
   if (stand && !/vesa|אריזה|המעמד/i.test(`${label} ${scope}`)) {
-    const blob = /^(?:רוחב|גובה|עומק)$/.test(label) ? `${label} ${value}` : value;
-    for (const kind of ['רוחב', 'גובה', 'עומק']) {
-      const amount = blob.match(new RegExp(`${kind}\\s*[:]?\\s*(\\d+(?:[.,]\\d+)?)`))?.[1]?.replace(',', '.');
-      if (!amount) continue;
+    const amountDirect = kind ? value.match(/(\d+(?:[.,]\d+)?)/)?.[1]?.replace(',', '.') : '';
+    if (kind && amountDirect) {
       const fieldLabel = `${kind} ${stand} (ס"מ)`;
-      if (!fields.some((item) => item.label === fieldLabel)) fields.push({ label: fieldLabel, value: amount });
+      if (!fields.some((item) => item.label === fieldLabel)) fields.push({ label: fieldLabel, value: amountDirect });
+    } else {
+      const blob = /^(?:רוחב|גובה|עומק)$/.test(label) ? `${label} ${value}` : value;
+      for (const name of ['רוחב', 'גובה', 'עומק']) {
+        const amount = blob.match(new RegExp(`${name}\\s*[:]?\\s*(\\d+(?:[.,]\\d+)?)`))?.[1]?.replace(',', '.');
+        if (!amount) continue;
+        const fieldLabel = `${name} ${stand} (ס"מ)`;
+        if (!fields.some((item) => item.label === fieldLabel)) fields.push({ label: fieldLabel, value: amount });
+      }
     }
   }
   return true;
@@ -1863,10 +1965,25 @@ async function intakeBrief(input: z.infer<typeof inputSchema>): Promise<ProductI
     ...variant,
     price: supportedFact(variant.price, notes) ? variant.price : '',
     subcategory: supportedFact(variant.subcategory.nameHe, notes) ? variant.subcategory : emptySubcategory,
-    specs: variant.specs.filter((spec) => supportedFact(spec.value, notes)),
+    specs: overlayParsedSpecs(
+      variant.specs
+        .map((spec) =>
+          spec.section === 'spec' ? { ...spec, value: completeFromSource(spec.value, notes) || spec.value } : spec,
+        )
+        .filter((spec) => {
+          if (!supportedFact(spec.value, notes)) return false;
+          if (spec.section === 'spec' && startsMidSentence(spec.value)) return false;
+          return true;
+        }),
+      parsed.specs,
+    ),
   }));
+  if (!brief.brand.name.trim() && parsed.brandName) brief.brand = { id: '', name: parsed.brandName, slug: '' };
+  if (!brief.category.nameHe.trim() && parsed.categoryName) {
+    brief.category = { id: '', nameHe: parsed.categoryName, nameAr: '', slug: '' };
+  }
   const proposal: Proposal = {
-    nameHe: brief.nameHe,
+    nameHe: brief.nameHe || parsed.nameHe || input.model,
     nameAr: brief.nameAr,
     brand: brief.brand,
     category: brief.category,
@@ -1881,6 +1998,23 @@ async function intakeBrief(input: z.infer<typeof inputSchema>): Promise<ProductI
   const brandId = await ensureBrand(proposal, catalog, slugs, created);
   const category = await ensureCategory(proposal, catalog, slugs, created);
   await applySpecParagraphs(input.notes, category, fitted);
+  const parsedSpecBlocks = parsed.specs.filter((spec) => spec.section === 'spec' && isFullParagraph(spec.value));
+  if (parsedSpecBlocks.length > 0) {
+    for (const variant of fitted) {
+      for (const block of parsedSpecBlocks) {
+        if (variant.specs.some((spec) => spec.section === 'spec' && same(spec.labelHe, block.labelHe) && spec.value.length >= block.value.length)) {
+          continue;
+        }
+        variant.specs = [
+          {
+            ...block,
+            value: completeFromSource(block.value, input.notes) || block.value,
+          },
+          ...variant.specs.filter((spec) => !(spec.section === 'spec' && same(spec.labelHe, block.labelHe))),
+        ];
+      }
+    }
+  }
   const paragraphs = fitted.flatMap((variant) => variant.specs.filter((spec) => spec.section === 'spec' && hasHebrew(spec.value) && !hasArabic(spec.valueAr)));
   if (paragraphs.length > 0) await fillArabic({ ...proposal, specs: paragraphs.slice(0, 24) }).catch(() => proposal);
   const variants = [];
@@ -2022,8 +2156,28 @@ const briefResultSchema = z.object({
 });
 
 function canApplyParsed(parsed: ParsedNotes): boolean {
-  if (!parsed.brandName.trim() || !parsed.categoryName.trim()) return false;
+  const brand = parsed.brandName.trim();
+  const category = parsed.categoryName.trim();
+  if (!brand || !category) return false;
   return parsed.specs.length >= 4 || parsed.variants.length >= 2;
+}
+
+function overlayParsedSpecs(current: Proposal['specs'], parsed: Proposal['specs']): Proposal['specs'] {
+  const merged = [...current];
+  for (const item of parsed) {
+    if (!item.value.trim()) continue;
+    const index = merged.findIndex(
+      (spec) => same(spec.labelHe, item.labelHe) || (item.labelAr && same(spec.labelAr, item.labelAr)),
+    );
+    if (index >= 0) {
+      const previous = merged[index];
+      if (!previous) continue;
+      if (item.section === 'features' || item.value.length >= previous.value.length) merged[index] = { ...item };
+      continue;
+    }
+    merged.push(item);
+  }
+  return placeBriefSpecs(scrubSpecs(merged).filter((spec) => !isStoreNoise(spec.labelHe) && !isStoreNoise(spec.value)));
 }
 
 function labeledValue(notes: string, label: RegExp): string {
