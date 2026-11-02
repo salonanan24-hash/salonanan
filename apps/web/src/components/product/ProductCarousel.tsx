@@ -39,6 +39,7 @@ function alignCard(container: HTMLElement, element: HTMLElement, edge: 'start' |
       : rtl
         ? elementRect.left - containerRect.left
         : elementRect.right - containerRect.right;
+  if (Math.abs(delta) < 1) return;
   container.scrollBy({ left: delta, behavior });
 }
 
@@ -58,16 +59,21 @@ export function ProductCarousel({
   const scrollerRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Array<HTMLLIElement | null>>([]);
   const dragRef = useRef<{ pointerId: number; x: number; y: number; moved: boolean } | null>(null);
-  const [edges, setEdges] = useState({ prev: false, next: false, overflow: false });
   const settling = useRef(false);
+  const settleLock = useRef(0);
   const settleRef = useRef<() => void>(() => {});
+  const touchActive = useRef(false);
+  const [edges, setEdges] = useState({ prev: false, next: false, overflow: false });
   const [dragging, setDragging] = useState(false);
+
+  const looping = loop && products.length > 1;
+  const signature = products.map((product) => product.id).join('|');
 
   const measure = useCallback(() => {
     const root = scrollerRef.current;
     const items = itemRefs.current.filter((item): item is HTMLLIElement => item !== null);
     if (!root || items.length === 0) {
-      setEdges({ prev: false, next: false, overflow: false });
+      setEdges((current) => (current.overflow || current.prev || current.next ? { prev: false, next: false, overflow: false } : current));
       return;
     }
     const rootRect = root.getBoundingClientRect();
@@ -77,14 +83,17 @@ export function ProductCarousel({
     if (!first || !last) return;
     const overflow = root.scrollWidth - root.clientWidth > 4;
     if (!overflow) {
-      setEdges({ prev: false, next: false, overflow: false });
+      setEdges((current) => (current.overflow || current.prev || current.next ? { prev: false, next: false, overflow: false } : current));
       return;
     }
-    setEdges({
+    const next = {
       prev: rtl ? first.right > rootRect.right + 4 : first.left < rootRect.left - 4,
       next: rtl ? last.left < rootRect.left - 4 : last.right > rootRect.right + 4,
       overflow: true,
-    });
+    };
+    setEdges((current) =>
+      current.prev === next.prev && current.next === next.next && current.overflow === next.overflow ? current : next,
+    );
   }, []);
 
   useEffect(() => {
@@ -95,28 +104,40 @@ export function ProductCarousel({
     observer.observe(root);
     let settleTimer = 0;
     const scheduleSettle = () => {
-      if (settling.current || dragRef.current?.moved) return;
+      if (settling.current || touchActive.current || dragRef.current?.moved) return;
+      if (performance.now() < settleLock.current) return;
       window.clearTimeout(settleTimer);
-      settleTimer = window.setTimeout(() => settleRef.current(), 160);
+      settleTimer = window.setTimeout(() => settleRef.current(), 220);
     };
     const onScroll = () => {
       measure();
       scheduleSettle();
     };
+    const onTouchStart = () => {
+      touchActive.current = true;
+      window.clearTimeout(settleTimer);
+    };
+    const onTouchEnd = () => {
+      touchActive.current = false;
+      scheduleSettle();
+    };
     root.addEventListener('scroll', onScroll, { passive: true });
     root.addEventListener('scrollend', onScroll);
+    root.addEventListener('touchstart', onTouchStart, { passive: true });
+    root.addEventListener('touchend', onTouchEnd, { passive: true });
+    root.addEventListener('touchcancel', onTouchEnd, { passive: true });
     window.addEventListener('resize', measure);
     return () => {
       observer.disconnect();
       window.clearTimeout(settleTimer);
       root.removeEventListener('scroll', onScroll);
       root.removeEventListener('scrollend', onScroll);
+      root.removeEventListener('touchstart', onTouchStart);
+      root.removeEventListener('touchend', onTouchEnd);
+      root.removeEventListener('touchcancel', onTouchEnd);
       window.removeEventListener('resize', measure);
     };
-  }, [measure, products]);
-
-  const looping = loop && products.length > 1;
-  const signature = products.map((product) => product.id).join('|');
+  }, [measure, signature]);
 
   useLayoutEffect(() => {
     if (!looping) return;
@@ -124,12 +145,18 @@ export function ProductCarousel({
     const element = itemRefs.current[products.length];
     if (!root || !element) return;
     itemRefs.current.length = products.length * 3;
+    settling.current = true;
+    settleLock.current = performance.now() + 400;
     root.style.scrollBehavior = 'auto';
     root.style.scrollSnapType = 'none';
     alignCard(root, element, 'start', 'auto');
     root.style.scrollBehavior = '';
     root.style.scrollSnapType = '';
-  }, [looping, signature, products.length]);
+    requestAnimationFrame(() => {
+      settling.current = false;
+      measure();
+    });
+  }, [looping, signature, products.length, measure]);
 
   if (products.length === 0) return null;
 
@@ -157,13 +184,15 @@ export function ProductCarousel({
   function settleLoop() {
     const root = scrollerRef.current;
     const count = products.length;
-    if (!looping || !root || count < 2 || settling.current) return;
+    if (!looping || !root || count < 2 || settling.current || touchActive.current) return;
+    if (performance.now() < settleLock.current) return;
     const index = firstVisibleIndex();
     const target = index < count ? index + count : index >= count * 2 ? index - count : index;
     if (target === index) return;
     const element = itemRefs.current[target];
     if (!element) return;
     settling.current = true;
+    settleLock.current = performance.now() + 450;
     root.style.scrollBehavior = 'auto';
     root.style.scrollSnapType = 'none';
     alignCard(root, element, 'start', 'auto');
@@ -171,6 +200,7 @@ export function ProductCarousel({
     root.style.scrollSnapType = '';
     requestAnimationFrame(() => {
       settling.current = false;
+      measure();
     });
   }
 
@@ -191,6 +221,7 @@ export function ProductCarousel({
     }
     const element = itemRefs.current[target];
     if (!element) return;
+    settleLock.current = performance.now() + 500;
     alignCard(root, element, 'start');
   }
 
@@ -308,7 +339,11 @@ export function ProductCarousel({
           onPointerCancel={endDrag}
           onDragStart={(event) => event.preventDefault()}
           className={`@container min-w-0 cursor-grab touch-manipulation overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
-            dragging ? 'cursor-grabbing snap-none' : 'snap-x snap-mandatory scroll-smooth'
+            dragging
+              ? 'cursor-grabbing snap-none'
+              : looping
+                ? 'snap-none'
+                : 'snap-x snap-mandatory scroll-smooth'
           }`}
         >
           <ul className="flex w-max gap-3 lg:gap-4">
@@ -322,7 +357,7 @@ export function ProductCarousel({
                       itemRefs.current[position] = node;
                     }}
                     aria-hidden={looping && cycle !== 1 ? true : undefined}
-                    className={`shrink-0 snap-start ${cardWidth[perRow]}`}
+                    className={`shrink-0 ${looping ? '' : 'snap-start'} ${cardWidth[perRow]}`}
                   >
                     <ProductCard product={product} />
                   </li>

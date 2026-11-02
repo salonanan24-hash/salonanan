@@ -66,7 +66,7 @@ export function ProductCard({ product }: ProductCardProps) {
             src={image.src}
             alt={image.alt[locale]}
             categorySlug={product.categorySlug}
-            className="h-full w-full object-contain transition duration-500 group-hover/card:scale-105"
+            className="h-full w-full object-contain [@media(hover:hover)_and_(pointer:fine)]:transition [@media(hover:hover)_and_(pointer:fine)]:duration-500 [@media(hover:hover)_and_(pointer:fine)]:group-hover/card:scale-105"
           />
         </div>
       </div>
@@ -85,7 +85,7 @@ export function ProductCard({ product }: ProductCardProps) {
               aria-pressed={favorite}
               aria-label={favorite ? messages.product.favoriteRemove : messages.product.favoriteAdd}
               onClick={() => toggleFavorite(product.id)}
-              className="pointer-events-auto inline-flex h-7 w-7 items-center justify-center rounded-md border border-line bg-white text-ink transition duration-200 hover:scale-110 hover:border-brand-red hover:bg-[#fff1f1] hover:text-brand-red"
+              className="pointer-events-auto inline-flex h-7 w-7 items-center justify-center rounded-md border border-line bg-white text-ink transition-colors duration-200 hover:border-brand-red hover:bg-[#fff1f1] hover:text-brand-red"
             >
               <Heart
                 className="h-3.5 w-3.5"
@@ -102,7 +102,7 @@ export function ProductCard({ product }: ProductCardProps) {
                 const result = toggleCompare(product.id);
                 setLimitNote(result === 'limit');
               }}
-              className={`pointer-events-auto inline-flex h-7 w-7 items-center justify-center rounded-md border bg-white transition duration-200 hover:scale-110 hover:border-brand-blue hover:bg-[#f3f8fc] hover:text-brand-blue ${
+              className={`pointer-events-auto inline-flex h-7 w-7 items-center justify-center rounded-md border bg-white transition-colors duration-200 hover:border-brand-blue hover:bg-[#f3f8fc] hover:text-brand-blue ${
                 compared ? 'border-brand-blue text-brand-blue' : 'border-line text-muted'
               }`}
             >
