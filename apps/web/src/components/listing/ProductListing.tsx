@@ -1,5 +1,5 @@
 import { PackageOpen } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { DemoProduct } from '@/data/catalog';
 import type { ListingFilter } from '@/data/listing';
@@ -20,6 +20,7 @@ export function ProductListing({ products, filters }: ProductListingProps) {
   const { locale, messages } = useI18n();
   const [params, setParams] = useSearchParams();
   const [drawer, setDrawer] = useState(false);
+  const productsTopRef = useRef<HTMLDivElement>(null);
   const query = parseListingQuery(params, filters);
   const filtered = useMemo(
     () => applyListing(products, filters, query, locale),
@@ -86,6 +87,7 @@ export function ProductListing({ products, filters }: ProductListingProps) {
     if (nextPage <= 1) next.delete('page');
     else next.set('page', String(nextPage));
     setParams(next);
+    productsTopRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   const controls = {
@@ -102,7 +104,7 @@ export function ProductListing({ products, filters }: ProductListingProps) {
       <div className="hidden lg:block">
         <FilterSidebar {...controls} />
       </div>
-      <div className="min-w-0">
+      <div ref={productsTopRef} className="min-w-0 scroll-mt-28">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <button

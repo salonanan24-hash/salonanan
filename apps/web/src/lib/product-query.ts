@@ -14,7 +14,7 @@ export type ListingQuery = {
 
 const sorts = new Set<SortKey>(['featured', 'price-asc', 'price-desc', 'name-asc', 'name-desc']);
 
-export const pageSize = 12;
+export const pageSize = 24;
 
 export function parseListingQuery(
   params: URLSearchParams,
