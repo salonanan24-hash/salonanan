@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { idSchema } from '../admin/catalog.js';
 import { AppError } from '../errors/app-error.js';
+import { persistImage } from '../lib/media.js';
 import { getSupabaseAdmin, isSupabaseConfigured } from '../lib/supabase.js';
 
 const targetKind = z.enum(['none', 'category', 'subcategory', 'brand', 'product', 'package']);
@@ -122,21 +123,21 @@ export async function replaceHomeAds(ads: HomeAd[], placement: z.infer<typeof pl
     fail((await client.from('home_ads').delete().in('id', remove)).error);
   }
   if (ads.length === 0) return;
-  fail(
-    (
-      await client.from('home_ads').upsert(
-        ads.map((ad, index) => ({
-          id: ad.id,
-          image_src: ad.image,
-          image_mobile_src: ad.imageMobile?.trim() || '',
-          target_kind: ad.targetRef && ad.targetKind !== 'none' ? ad.targetKind : 'none',
-          target_ref: ad.targetRef && ad.targetKind !== 'none' ? ad.targetRef : '',
-          placement,
-          section: placement === 'section' ? (ad.section ?? null) : null,
-          layout: placement === 'section' ? (ad.layout ?? null) : null,
-          sort_order: index,
-        })),
-      )
-    ).error,
-  );
+  const stored = [];
+  for (const [index, ad] of ads.entries()) {
+    stored.push({
+      id: ad.id,
+      image_src: await persistImage(ad.image, `banners/${placement}`, `${ad.id}-desktop`),
+      image_mobile_src: ad.imageMobile?.trim()
+        ? await persistImage(ad.imageMobile, `banners/${placement}`, `${ad.id}-mobile`)
+        : '',
+      target_kind: ad.targetRef && ad.targetKind !== 'none' ? ad.targetKind : 'none',
+      target_ref: ad.targetRef && ad.targetKind !== 'none' ? ad.targetRef : '',
+      placement,
+      section: placement === 'section' ? (ad.section ?? null) : null,
+      layout: placement === 'section' ? (ad.layout ?? null) : null,
+      sort_order: index,
+    });
+  }
+  fail((await client.from('home_ads').upsert(stored)).error);
 }

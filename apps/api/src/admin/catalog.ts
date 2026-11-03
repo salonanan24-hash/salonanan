@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { AppError } from '../errors/app-error.js';
 import { logger } from '../lib/logger.js';
+import { persistImage } from '../lib/media.js';
 import { getSupabaseAdmin } from '../lib/supabase.js';
 
 const idSchema = z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/);
@@ -307,43 +308,48 @@ export async function importCatalog(input: CatalogPayload): Promise<CatalogPaylo
 
   const client = db();
   if (input.brands.length > 0) {
-    const { error } = await client.from('brands').insert(
-      input.brands.map((brand, index) => ({
+    const brands = [];
+    for (const [index, brand] of input.brands.entries()) {
+      brands.push({
         id: brand.id,
         slug: brand.slug,
         name: brand.name,
-        image_src: brand.image,
+        image_src: await persistImage(brand.image, 'brands', brand.id),
         sort_order: index,
-      })),
-    );
-    check(error);
+      });
+    }
+    check((await client.from('brands').insert(brands)).error);
   }
 
   if (input.categories.length > 0) {
-    const { error } = await client.from('categories').insert(
-      input.categories.map((category, index) => ({
+    const categories = [];
+    for (const [index, category] of input.categories.entries()) {
+      categories.push({
         id: category.id,
         slug: category.slug,
         name_he: category.name.he,
         name_ar: category.name.ar,
-        image_src: category.image,
+        image_src: await persistImage(category.image, 'categories', category.id),
         sort_order: index,
-      })),
-    );
-    check(error);
+      });
+    }
+    check((await client.from('categories').insert(categories)).error);
   }
 
-  const subcategories = input.categories.flatMap((category) =>
-    category.subcategories.map((item, index) => ({
-      id: item.id,
-      category_id: category.id,
-      name_he: item.name.he,
-      name_ar: item.name.ar,
-      image_src: item.image,
-      sort_order: index,
-      display_order: item.displayOrder ?? null,
-    })),
-  );
+  const subcategories = [];
+  for (const category of input.categories) {
+    for (const [index, item] of category.subcategories.entries()) {
+      subcategories.push({
+        id: item.id,
+        category_id: category.id,
+        name_he: item.name.he,
+        name_ar: item.name.ar,
+        image_src: await persistImage(item.image, 'subcategories', item.id),
+        sort_order: index,
+        display_order: item.displayOrder ?? null,
+      });
+    }
+  }
   if (subcategories.length > 0) check((await client.from('subcategories').insert(subcategories)).error);
 
   if (input.products.length > 0) {
@@ -393,16 +399,19 @@ export async function importCatalog(input: CatalogPayload): Promise<CatalogPaylo
   );
   if (variants.length > 0) check((await client.from('product_variants').insert(variants)).error);
 
-  const images = input.products.flatMap((product) =>
-    product.variants.flatMap((variant) =>
-      variant.images.map((image, index) => ({
-        id: image.id,
-        variant_id: variant.id,
-        src: image.src,
-        sort_order: index,
-      })),
-    ),
-  );
+  const images = [];
+  for (const product of input.products) {
+    for (const variant of product.variants) {
+      for (const [index, image] of variant.images.entries()) {
+        images.push({
+          id: image.id,
+          variant_id: variant.id,
+          src: await persistImage(image.src, `products/${product.id}`, image.id),
+          sort_order: index,
+        });
+      }
+    }
+  }
   if (images.length > 0) check((await client.from('variant_images').insert(images)).error);
 
   const specs = input.products.flatMap((product) =>
@@ -472,12 +481,13 @@ export const categoryInput = z.object({
 
 export async function createCategory(input: z.infer<typeof categoryInput>) {
   const nameAr = input.nameAr || input.nameHe;
+  const image = await persistImage(input.image, 'categories', input.id);
   const { error } = await db().from('categories').insert({
     id: input.id,
     slug: input.slug,
     name_he: input.nameHe,
     name_ar: nameAr,
-    image_src: input.image,
+    image_src: image,
     sort_order: await nextSort('categories'),
     display_order: input.displayOrder ?? null,
   });
@@ -485,13 +495,14 @@ export async function createCategory(input: z.infer<typeof categoryInput>) {
 }
 
 export async function updateCategory(id: string, input: Omit<z.infer<typeof categoryInput>, 'id'>) {
+  const image = await persistImage(input.image, 'categories', id);
   const { error } = await db()
     .from('categories')
     .update({
       slug: input.slug,
       name_he: input.nameHe,
       name_ar: input.nameAr || input.nameHe,
-      image_src: input.image,
+      image_src: image,
       display_order: input.displayOrder ?? null,
     })
     .eq('id', id);
@@ -518,12 +529,13 @@ export const subcategoryInput = namedInput.extend({
 });
 
 export async function createSubcategory(categoryId: string, input: z.infer<typeof subcategoryInput>) {
+  const image = await persistImage(input.image, 'subcategories', input.id);
   const { error } = await db().from('subcategories').insert({
     id: input.id,
     category_id: categoryId,
     name_he: input.nameHe,
     name_ar: input.nameAr || input.nameHe,
-    image_src: input.image,
+    image_src: image,
     sort_order: await nextChildSort('subcategories', categoryId),
     display_order: input.displayOrder ?? null,
   });
@@ -531,12 +543,13 @@ export async function createSubcategory(categoryId: string, input: z.infer<typeo
 }
 
 export async function updateSubcategory(id: string, input: Omit<z.infer<typeof subcategoryInput>, 'id'>) {
+  const image = await persistImage(input.image, 'subcategories', id);
   const { error } = await db()
     .from('subcategories')
     .update({
       name_he: input.nameHe,
       name_ar: input.nameAr || input.nameHe,
-      image_src: input.image,
+      image_src: image,
       display_order: input.displayOrder ?? null,
     })
     .eq('id', id);
@@ -592,20 +605,22 @@ export const brandInput = z.object({
 });
 
 export async function createBrand(input: z.infer<typeof brandInput>) {
+  const image = await persistImage(input.image, 'brands', input.id);
   const { error } = await db().from('brands').insert({
     id: input.id,
     name: input.name,
     slug: input.slug,
-    image_src: input.image,
+    image_src: image,
     sort_order: await nextSort('brands'),
   });
   check(error);
 }
 
 export async function updateBrand(id: string, input: Omit<z.infer<typeof brandInput>, 'id'>) {
+  const image = await persistImage(input.image, 'brands', id);
   const { error } = await db()
     .from('brands')
-    .update({ name: input.name, slug: input.slug, image_src: input.image })
+    .update({ name: input.name, slug: input.slug, image_src: image })
     .eq('id', id);
   check(error);
 }
@@ -678,14 +693,17 @@ export async function saveProduct(input: z.infer<typeof productSchema>) {
     );
   }
 
-  const images = input.variants.flatMap((variant) =>
-    variant.images.map((image, index) => ({
-      id: image.id,
-      variant_id: variant.id,
-      src: image.src,
-      sort_order: index,
-    })),
-  );
+  const images = [];
+  for (const variant of input.variants) {
+    for (const [index, image] of variant.images.entries()) {
+      images.push({
+        id: image.id,
+        variant_id: variant.id,
+        src: await persistImage(image.src, `products/${input.id}`, image.id),
+        sort_order: index,
+      });
+    }
+  }
   if (images.length > 0) check((await client.from('variant_images').insert(images)).error);
 
   const specs = Object.entries(input.specs)

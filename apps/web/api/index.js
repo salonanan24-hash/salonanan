@@ -207,6 +207,9 @@ import { z as z9 } from "zod";
 // ../api/src/admin/catalog.ts
 import { z as z2 } from "zod";
 
+// ../api/src/lib/media.ts
+import { randomUUID } from "node:crypto";
+
 // ../api/src/lib/supabase.ts
 import { createClient } from "@supabase/supabase-js";
 var adminClient = null;
@@ -226,6 +229,36 @@ function getSupabaseAdmin() {
     });
   }
   return adminClient;
+}
+
+// ../api/src/lib/media.ts
+var DATA_URL = /^data:(image\/(?:jpeg|png|webp|gif));base64,([A-Za-z0-9+/=\s]+)$/i;
+function extension(mime) {
+  if (mime === "image/jpeg") return "jpg";
+  if (mime === "image/png") return "png";
+  if (mime === "image/webp") return "webp";
+  return "gif";
+}
+async function persistImage(value, folder, fileId) {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+  const match = DATA_URL.exec(trimmed);
+  if (!match) return trimmed;
+  const mime = match[1].toLowerCase();
+  const buffer = Buffer.from(match[2].replace(/\s+/g, ""), "base64");
+  if (buffer.length === 0) return "";
+  if (buffer.length > 5e6) throw new AppError(413, "image_too_large", "Image is too large");
+  const name = (fileId?.trim() || randomUUID()).replace(/[^a-zA-Z0-9_-]/g, "-");
+  const path = `${folder.replace(/^\/+|\/+$/g, "")}/${name}.${extension(mime)}`;
+  const client = getSupabaseAdmin();
+  const { error } = await client.storage.from("media").upload(path, buffer, {
+    contentType: mime,
+    upsert: true,
+    cacheControl: "31536000"
+  });
+  if (error) throw new AppError(500, "storage", error.message || "Image upload failed");
+  const { data } = client.storage.from("media").getPublicUrl(path);
+  return data.publicUrl;
 }
 
 // ../api/src/admin/catalog.ts
@@ -489,41 +522,46 @@ async function importCatalog(input) {
   if (!await isCatalogEmpty()) return readCatalog();
   const client = db();
   if (input.brands.length > 0) {
-    const { error } = await client.from("brands").insert(
-      input.brands.map((brand, index) => ({
+    const brands = [];
+    for (const [index, brand] of input.brands.entries()) {
+      brands.push({
         id: brand.id,
         slug: brand.slug,
         name: brand.name,
-        image_src: brand.image,
+        image_src: await persistImage(brand.image, "brands", brand.id),
         sort_order: index
-      }))
-    );
-    check(error);
+      });
+    }
+    check((await client.from("brands").insert(brands)).error);
   }
   if (input.categories.length > 0) {
-    const { error } = await client.from("categories").insert(
-      input.categories.map((category, index) => ({
+    const categories = [];
+    for (const [index, category] of input.categories.entries()) {
+      categories.push({
         id: category.id,
         slug: category.slug,
         name_he: category.name.he,
         name_ar: category.name.ar,
-        image_src: category.image,
+        image_src: await persistImage(category.image, "categories", category.id),
         sort_order: index
-      }))
-    );
-    check(error);
+      });
+    }
+    check((await client.from("categories").insert(categories)).error);
   }
-  const subcategories = input.categories.flatMap(
-    (category) => category.subcategories.map((item, index) => ({
-      id: item.id,
-      category_id: category.id,
-      name_he: item.name.he,
-      name_ar: item.name.ar,
-      image_src: item.image,
-      sort_order: index,
-      display_order: item.displayOrder ?? null
-    }))
-  );
+  const subcategories = [];
+  for (const category of input.categories) {
+    for (const [index, item] of category.subcategories.entries()) {
+      subcategories.push({
+        id: item.id,
+        category_id: category.id,
+        name_he: item.name.he,
+        name_ar: item.name.ar,
+        image_src: await persistImage(item.image, "subcategories", item.id),
+        sort_order: index,
+        display_order: item.displayOrder ?? null
+      });
+    }
+  }
   if (subcategories.length > 0) check((await client.from("subcategories").insert(subcategories)).error);
   if (input.products.length > 0) {
     check(
@@ -567,16 +605,19 @@ async function importCatalog(input) {
     }))
   );
   if (variants.length > 0) check((await client.from("product_variants").insert(variants)).error);
-  const images = input.products.flatMap(
-    (product) => product.variants.flatMap(
-      (variant) => variant.images.map((image, index) => ({
-        id: image.id,
-        variant_id: variant.id,
-        src: image.src,
-        sort_order: index
-      }))
-    )
-  );
+  const images = [];
+  for (const product of input.products) {
+    for (const variant of product.variants) {
+      for (const [index, image] of variant.images.entries()) {
+        images.push({
+          id: image.id,
+          variant_id: variant.id,
+          src: await persistImage(image.src, `products/${product.id}`, image.id),
+          sort_order: index
+        });
+      }
+    }
+  }
   if (images.length > 0) check((await client.from("variant_images").insert(images)).error);
   const specs = input.products.flatMap(
     (product) => Object.entries(product.specs).filter(([, value]) => value.trim()).map(([fieldId, value]) => ({
@@ -624,23 +665,25 @@ var categoryInput = z2.object({
 });
 async function createCategory(input) {
   const nameAr = input.nameAr || input.nameHe;
+  const image = await persistImage(input.image, "categories", input.id);
   const { error } = await db().from("categories").insert({
     id: input.id,
     slug: input.slug,
     name_he: input.nameHe,
     name_ar: nameAr,
-    image_src: input.image,
+    image_src: image,
     sort_order: await nextSort("categories"),
     display_order: input.displayOrder ?? null
   });
   check(error);
 }
 async function updateCategory(id, input) {
+  const image = await persistImage(input.image, "categories", id);
   const { error } = await db().from("categories").update({
     slug: input.slug,
     name_he: input.nameHe,
     name_ar: input.nameAr || input.nameHe,
-    image_src: input.image,
+    image_src: image,
     display_order: input.displayOrder ?? null
   }).eq("id", id);
   check(error);
@@ -662,22 +705,24 @@ var subcategoryInput = namedInput.extend({
   displayOrder: z2.number().int().min(0).max(9999).nullable().optional()
 });
 async function createSubcategory(categoryId, input) {
+  const image = await persistImage(input.image, "subcategories", input.id);
   const { error } = await db().from("subcategories").insert({
     id: input.id,
     category_id: categoryId,
     name_he: input.nameHe,
     name_ar: input.nameAr || input.nameHe,
-    image_src: input.image,
+    image_src: image,
     sort_order: await nextChildSort("subcategories", categoryId),
     display_order: input.displayOrder ?? null
   });
   check(error);
 }
 async function updateSubcategory(id, input) {
+  const image = await persistImage(input.image, "subcategories", id);
   const { error } = await db().from("subcategories").update({
     name_he: input.nameHe,
     name_ar: input.nameAr || input.nameHe,
-    image_src: input.image,
+    image_src: image,
     display_order: input.displayOrder ?? null
   }).eq("id", id);
   check(error);
@@ -722,17 +767,19 @@ var brandInput = z2.object({
   image: storedImage
 });
 async function createBrand(input) {
+  const image = await persistImage(input.image, "brands", input.id);
   const { error } = await db().from("brands").insert({
     id: input.id,
     name: input.name,
     slug: input.slug,
-    image_src: input.image,
+    image_src: image,
     sort_order: await nextSort("brands")
   });
   check(error);
 }
 async function updateBrand(id, input) {
-  const { error } = await db().from("brands").update({ name: input.name, slug: input.slug, image_src: input.image }).eq("id", id);
+  const image = await persistImage(input.image, "brands", id);
+  const { error } = await db().from("brands").update({ name: input.name, slug: input.slug, image_src: image }).eq("id", id);
   check(error);
 }
 async function deleteBrand(id) {
@@ -795,14 +842,17 @@ async function saveProduct(input) {
       )).error
     );
   }
-  const images = input.variants.flatMap(
-    (variant) => variant.images.map((image, index) => ({
-      id: image.id,
-      variant_id: variant.id,
-      src: image.src,
-      sort_order: index
-    }))
-  );
+  const images = [];
+  for (const variant of input.variants) {
+    for (const [index, image] of variant.images.entries()) {
+      images.push({
+        id: image.id,
+        variant_id: variant.id,
+        src: await persistImage(image.src, `products/${input.id}`, image.id),
+        sort_order: index
+      });
+    }
+  }
   if (images.length > 0) check((await client.from("variant_images").insert(images)).error);
   const specs = Object.entries(input.specs).filter(([, value]) => value.trim()).map(([fieldId, value]) => ({
     product_id: input.id,
@@ -1654,21 +1704,21 @@ async function replaceHomeAds(ads, placement = "hero") {
     fail2((await client.from("home_ads").delete().in("id", remove)).error);
   }
   if (ads.length === 0) return;
-  fail2(
-    (await client.from("home_ads").upsert(
-      ads.map((ad, index) => ({
-        id: ad.id,
-        image_src: ad.image,
-        image_mobile_src: ad.imageMobile?.trim() || "",
-        target_kind: ad.targetRef && ad.targetKind !== "none" ? ad.targetKind : "none",
-        target_ref: ad.targetRef && ad.targetKind !== "none" ? ad.targetRef : "",
-        placement,
-        section: placement === "section" ? ad.section ?? null : null,
-        layout: placement === "section" ? ad.layout ?? null : null,
-        sort_order: index
-      }))
-    )).error
-  );
+  const stored = [];
+  for (const [index, ad] of ads.entries()) {
+    stored.push({
+      id: ad.id,
+      image_src: await persistImage(ad.image, `ads/${placement}`, `${ad.id}-desktop`),
+      image_mobile_src: ad.imageMobile?.trim() ? await persistImage(ad.imageMobile, `ads/${placement}`, `${ad.id}-mobile`) : "",
+      target_kind: ad.targetRef && ad.targetKind !== "none" ? ad.targetKind : "none",
+      target_ref: ad.targetRef && ad.targetKind !== "none" ? ad.targetRef : "",
+      placement,
+      section: placement === "section" ? ad.section ?? null : null,
+      layout: placement === "section" ? ad.layout ?? null : null,
+      sort_order: index
+    });
+  }
+  fail2((await client.from("home_ads").upsert(stored)).error);
 }
 
 // ../api/src/packages/packages.ts
@@ -1766,7 +1816,7 @@ async function nextSort2() {
 // ../api/src/admin/product-agent.ts
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
-import { randomUUID } from "node:crypto";
+import { randomUUID as randomUUID2 } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { existsSync } from "node:fs";
 import { isIP } from "node:net";
@@ -3933,7 +3983,7 @@ function clip(value) {
   return value.trim().slice(0, 200);
 }
 function uniqueSlug(value, taken) {
-  const base = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 70) || `item-${randomUUID().slice(0, 8)}`;
+  const base = value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 70) || `item-${randomUUID2().slice(0, 8)}`;
   let slug = base;
   let count = 2;
   while (taken.has(slug)) {
@@ -3944,7 +3994,7 @@ function uniqueSlug(value, taken) {
   return slug;
 }
 function newId(prefix) {
-  return `${prefix}-${randomUUID()}`;
+  return `${prefix}-${randomUUID2()}`;
 }
 
 // ../api/src/admin/require-admin.ts
