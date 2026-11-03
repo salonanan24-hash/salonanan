@@ -1585,6 +1585,7 @@ var homeAdsInput = z6.object({
     z6.object({
       id: idSchema,
       image: imageSchema2,
+      imageMobile: z6.string().trim().max(2e6).default("").refine((value) => value === "" || isSafeImage(value), "image"),
       targetKind,
       targetRef,
       section: sectionSchema.optional(),
@@ -1624,16 +1625,18 @@ function isSafeImage(value) {
   }
 }
 async function listHomeAds(placement = "hero") {
-  const result = await db3().from("home_ads").select("id, image_src, target_kind, target_ref, sort_order, placement, section, layout").eq("placement", placement).order("sort_order");
+  const result = await db3().from("home_ads").select("id, image_src, image_mobile_src, target_kind, target_ref, sort_order, placement, section, layout").eq("placement", placement).order("sort_order");
   fail2(result.error);
   return (result.data ?? []).map((row2) => {
     const ref = row2.target_ref ?? "";
     const kind = targetKind.parse(row2.target_kind);
     const section = sectionSchema.safeParse(row2.section);
     const layout = layoutSchema.safeParse(row2.layout);
+    const mobile = typeof row2.image_mobile_src === "string" ? row2.image_mobile_src.trim() : "";
     return {
       id: row2.id,
       image: row2.image_src,
+      ...mobile ? { imageMobile: mobile } : {},
       targetKind: ref ? kind : "none",
       targetRef: ref && kind !== "none" ? ref : "",
       ...section.success ? { section: section.data } : {},
@@ -1656,6 +1659,7 @@ async function replaceHomeAds(ads, placement = "hero") {
       ads.map((ad, index) => ({
         id: ad.id,
         image_src: ad.image,
+        image_mobile_src: ad.imageMobile?.trim() || "",
         target_kind: ad.targetRef && ad.targetKind !== "none" ? ad.targetKind : "none",
         target_ref: ad.targetRef && ad.targetKind !== "none" ? ad.targetRef : "",
         placement,

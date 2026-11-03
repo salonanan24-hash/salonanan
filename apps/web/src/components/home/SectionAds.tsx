@@ -2,7 +2,7 @@ import { isAdminEmail } from '@anan/shared';
 import { Pencil } from 'lucide-react';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
-import { readCoverImage } from '@/admin/images';
+import { readCoverImage, readResizedImages } from '@/admin/images';
 import { adminRequest } from '@/admin/remote';
 import { useAuth } from '@/auth/auth-context';
 import { useDevelopmentCatalog } from '@/hooks/use-catalog';
@@ -19,6 +19,7 @@ type Layout = 'above' | 'beside';
 type SectionAd = {
   id: string;
   image: string;
+  imageMobile?: string;
   targetKind: TargetKind;
   targetRef: string;
   section: SectionKey;
@@ -54,7 +55,7 @@ export function SectionAdsProvider({ children }: { children: ReactNode }) {
 }
 
 const sizes = {
-  above: { width: 1920, height: 130 },
+  above: { width: 1920, height: 230 },
   beside: { width: 760, height: 740 },
 } as const;
 
@@ -142,18 +143,29 @@ function SectionBanner({
   fill: boolean;
 }) {
   const href = adHref(ad, catalog, packages);
-  const image = (
-    <img
-      src={ad.image}
-      alt=""
-      className={
-        fill
-          ? 'aspect-[760/740] h-auto w-full rounded-2xl object-cover xl:aspect-auto xl:h-full'
-          : 'aspect-[1920/130] h-auto w-full rounded-2xl object-cover'
-      }
-    />
-  );
-  if (!href) return image;
+  const mobile = ad.imageMobile?.trim() || '';
+  const desktopClass = fill
+    ? 'aspect-[760/740] h-auto w-full rounded-2xl object-cover xl:aspect-auto xl:h-full'
+    : 'aspect-[1920/230] h-auto w-full rounded-2xl object-cover';
+  // Same feel as hero ads above categories on small screens.
+  const mobileClass = 'block h-auto w-full rounded-2xl object-cover';
+
+  const image =
+    mobile && !fill ? (
+      <>
+        <img src={mobile} alt="" className={`lg:hidden ${mobileClass}`} />
+        <img src={ad.image} alt="" className={`hidden lg:block ${desktopClass}`} />
+      </>
+    ) : mobile && fill ? (
+      <>
+        <img src={mobile} alt="" className={`xl:hidden ${mobileClass}`} />
+        <img src={ad.image} alt="" className={`hidden xl:block ${desktopClass}`} />
+      </>
+    ) : (
+      <img src={ad.image} alt="" className={desktopClass} />
+    );
+
+  if (!href) return <div className={fill ? 'h-full' : undefined}>{image}</div>;
   return (
     <Link to={href} className={fill ? 'block h-full' : 'block'}>
       {image}
@@ -180,6 +192,7 @@ function SectionEditor({
   const [packages, setPackages] = useState<StorePackage[]>([]);
   const [layout, setLayout] = useState<Layout>(current?.layout ?? 'above');
   const [image, setImage] = useState(current?.image ?? '');
+  const [imageMobile, setImageMobile] = useState(current?.imageMobile ?? '');
   const [targetKind, setTargetKind] = useState<TargetKind>(current?.targetKind ?? 'none');
   const [targetRef, setTargetRef] = useState(current?.targetRef ?? '');
   const [status, setStatus] = useState<'idle' | 'saving' | 'failed'>('idle');
@@ -208,6 +221,7 @@ function SectionEditor({
       next.push({
         id: current?.id ?? `section-${section}`,
         image,
+        ...(imageMobile.trim() ? { imageMobile: imageMobile.trim() } : {}),
         targetKind: targetRef && targetKind !== 'none' ? targetKind : 'none',
         targetRef: targetRef && targetKind !== 'none' ? targetRef : '',
         section,
@@ -238,6 +252,7 @@ function SectionEditor({
               if (item === layout) return;
               setLayout(item);
               setImage('');
+              setImageMobile('');
               setStatus('idle');
             }}
             className={`rounded-full border px-3 py-1.5 text-xs font-bold ${
@@ -248,11 +263,14 @@ function SectionEditor({
           </button>
         ))}
       </div>
+
+      <p className="mt-4 text-xs font-bold text-ink">{copy.desktopImage}</p>
+      <p className="mt-1 text-xs leading-5 text-muted">{layout === 'above' ? copy.aboveSize : copy.besideSize}</p>
       {image ? (
         <img
           src={image}
           alt=""
-          className={`mt-3 rounded-lg object-cover ${layout === 'above' ? 'aspect-[1920/130] w-full' : 'aspect-[760/740] w-40'}`}
+          className={`mt-3 rounded-lg object-cover ${layout === 'above' ? 'aspect-[1920/230] w-full' : 'aspect-[760/740] w-40'}`}
         />
       ) : null}
       <label className="mt-3 inline-flex h-10 cursor-pointer items-center rounded-lg border border-dashed border-line px-3 text-xs font-semibold text-muted">
@@ -273,6 +291,36 @@ function SectionEditor({
           }}
         />
       </label>
+
+      <p className="mt-4 text-xs font-bold text-ink">{copy.mobileImage}</p>
+      <p className="mt-1 text-xs leading-5 text-muted">{copy.mobileSize}</p>
+      {imageMobile ? <img src={imageMobile} alt="" className="mt-3 h-28 w-full rounded-lg object-cover" /> : null}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <label className="inline-flex h-10 cursor-pointer items-center rounded-lg border border-dashed border-line px-3 text-xs font-semibold text-muted">
+          {imageMobile ? copy.replace : copy.image}
+          <input
+            type="file"
+            accept="image/*"
+            className="sr-only"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = '';
+              if (!file) return;
+              void readResizedImages([file], 1400).then(([src]) => {
+                if (!src) return;
+                setImageMobile(src);
+                setStatus('idle');
+              });
+            }}
+          />
+        </label>
+        {imageMobile ? (
+          <button type="button" className="text-xs font-bold text-brand-red" onClick={() => setImageMobile('')}>
+            {copy.remove}
+          </button>
+        ) : null}
+      </div>
+
       <p className="mt-3 text-xs font-bold text-ink">{copy.target}</p>
       <div className="mt-2 flex flex-wrap gap-2">
         {kinds.map((kind) => (

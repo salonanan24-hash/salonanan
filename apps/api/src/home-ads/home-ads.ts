@@ -28,6 +28,7 @@ export const homeAdsInput = z
         z.object({
           id: idSchema,
           image: imageSchema,
+          imageMobile: z.string().trim().max(2_000_000).default('').refine((value) => value === '' || isSafeImage(value), 'image'),
           targetKind,
           targetRef,
           section: sectionSchema.optional(),
@@ -53,6 +54,7 @@ export const homeAdsInput = z
 export type HomeAd = {
   id: string;
   image: string;
+  imageMobile?: string;
   targetKind: z.infer<typeof targetKind>;
   targetRef: string;
   section?: z.infer<typeof sectionSchema>;
@@ -88,7 +90,7 @@ function isSafeImage(value: string): boolean {
 export async function listHomeAds(placement: z.infer<typeof placementSchema> = 'hero'): Promise<HomeAd[]> {
   const result = await db()
     .from('home_ads')
-    .select('id, image_src, target_kind, target_ref, sort_order, placement, section, layout')
+    .select('id, image_src, image_mobile_src, target_kind, target_ref, sort_order, placement, section, layout')
     .eq('placement', placement)
     .order('sort_order');
   fail(result.error);
@@ -97,9 +99,11 @@ export async function listHomeAds(placement: z.infer<typeof placementSchema> = '
     const kind = targetKind.parse(row.target_kind);
     const section = sectionSchema.safeParse(row.section);
     const layout = layoutSchema.safeParse(row.layout);
+    const mobile = typeof row.image_mobile_src === 'string' ? row.image_mobile_src.trim() : '';
     return {
       id: row.id,
       image: row.image_src,
+      ...(mobile ? { imageMobile: mobile } : {}),
       targetKind: ref ? kind : 'none',
       targetRef: ref && kind !== 'none' ? ref : '',
       ...(section.success ? { section: section.data } : {}),
@@ -124,6 +128,7 @@ export async function replaceHomeAds(ads: HomeAd[], placement: z.infer<typeof pl
         ads.map((ad, index) => ({
           id: ad.id,
           image_src: ad.image,
+          image_mobile_src: ad.imageMobile?.trim() || '',
           target_kind: ad.targetRef && ad.targetKind !== 'none' ? ad.targetKind : 'none',
           target_ref: ad.targetRef && ad.targetKind !== 'none' ? ad.targetRef : '',
           placement,

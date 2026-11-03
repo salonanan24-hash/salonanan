@@ -76,7 +76,9 @@ export function ProductCarousel({
   loop = false,
 }: ProductCarouselProps) {
   const { messages } = useI18n();
-  const freeScroll = useFreeScroll();
+  // Aside (ad beside products) narrows the track on large screens; loop settle jumps
+  // yank the row back to the first card after a free drag — same as small screens.
+  const freeScroll = useFreeScroll() || Boolean(aside);
   const scrollerId = `product-carousel-${useId().replaceAll(':', '')}`;
   const scrollerRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<Array<HTMLLIElement | null>>([]);
@@ -88,7 +90,7 @@ export function ProductCarousel({
   const [edges, setEdges] = useState({ prev: false, next: false, overflow: false });
   const [dragging, setDragging] = useState(false);
 
-  // Infinite loop jumps fight free finger scrolling on phones and yank the row back.
+  // Infinite loop jumps fight free finger/mouse scrolling and yank the row back.
   const looping = loop && !freeScroll && products.length > 1;
   const signature = products.map((product) => product.id).join('|');
   const snapCards = !freeScroll && !looping;
