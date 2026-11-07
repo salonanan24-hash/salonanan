@@ -1440,14 +1440,17 @@ function parseNotes(model: string, notes: string): ParsedNotes {
   if (text.length < 80) return empty;
   const variants: ParsedSize[] = [];
   const seen = new Set<string>();
-  const body = text.replace(/([A-Za-z]{1,8}\d{2}[A-Za-z0-9-]{3,})[^\S\n]*\n\s*מק.?ט\s*[:：]?\s*(\d{4,8})/g, (_all, code: string, sku: string) => {
-    const modelCodeValue = String(code).toUpperCase();
-    if (!seen.has(modelCodeValue)) {
-      seen.add(modelCodeValue);
-      variants.push({ size: sizeToken(modelCodeValue), modelCode: modelCodeValue, sku: String(sku) });
-    }
-    return '\n';
-  });
+  const body = text.replace(
+    /([A-Za-z]{1,8}\d{2}[A-Za-z0-9-]{3,})[^\n]{0,48}מק.?ט\s*[:：]?\s*(\d{4,8})/g,
+    (_all, code: string, sku: string) => {
+      const modelCodeValue = String(code).toUpperCase();
+      if (!seen.has(modelCodeValue)) {
+        seen.add(modelCodeValue);
+        variants.push({ size: sizeToken(modelCodeValue), modelCode: modelCodeValue, sku: String(sku) });
+      }
+      return '\n';
+    },
+  );
   const lines = body
     .split('\n')
     .map((line) => line.trim())
@@ -1643,20 +1646,46 @@ function parseNotes(model: string, notes: string): ParsedNotes {
   if (/טלוויזיה חכמה/.test(`${nameHe}\n${text.slice(0, 500)}`) && !specs.some((spec) => spec.labelHe === 'טלוויזיה חכמה')) {
     remember('טלוויזיה חכמה', 'כן', 'features');
   }
-  if (variants.length === 0) {
+  const ordered = collectVariantSizes(model, `${nameHe}\n${text}`, variants);
+  if (ordered.length === 0) {
     const code = modelCode(`${nameHe} ${model}`);
     const modelCodeValue = /[A-Za-z]{1,8}\d{2}[A-Za-z0-9-]{3,}/.test(code) ? code.toUpperCase() : '';
     const sku = specs.find((spec) => isSkuLabel(spec.labelHe))?.value ?? '';
     const size = sizeToken(nameHe) || sizeToken(modelCodeValue) || sizeToken(model);
-    if (modelCodeValue || sku || size) variants.push({ size, modelCode: modelCodeValue, sku });
+    if (modelCodeValue || sku || size) ordered.push({ size, modelCode: modelCodeValue, sku });
   }
-  const ordered = [...variants].sort((left, right) => Number(left.size) - Number(right.size));
   const sourceIndex = ordered.findIndex((item) => item.size === sourceSize);
   if (sourceIndex > 0) {
     const [first] = ordered.splice(sourceIndex, 1);
     if (first) ordered.unshift(first);
   }
   return { nameHe, brandName, categoryName, subcategoryName, specs, variants: ordered };
+}
+
+/** Gather every written TV/monitor size from model codes, SKUs, and size mentions. */
+function collectVariantSizes(model: string, notes: string, current: ParsedSize[]): ParsedSize[] {
+  const text = `${model}\n${notes}`;
+  const bySize = new Map<string, ParsedSize>();
+  const remember = (size: string, modelCodeValue: string, sku: string) => {
+    if (!size) return;
+    const previous = bySize.get(size);
+    bySize.set(size, {
+      size,
+      modelCode: modelCodeValue || previous?.modelCode || '',
+      sku: sku || previous?.sku || '',
+    });
+  };
+  for (const item of current) remember(item.size, item.modelCode, item.sku);
+  for (const match of text.matchAll(/([A-Za-z]{1,8}\d{2}[A-Za-z0-9-]{3,})[^\n]{0,48}מק.?ט\s*[:：]?\s*(\d{4,8})/g)) {
+    const code = String(match[1] ?? '').toUpperCase();
+    remember(sizeToken(code), code, String(match[2] ?? ''));
+  }
+  for (const match of text.matchAll(/\b([A-Za-z]{1,8}\d{2}[A-Za-z0-9-]{3,})\b/g)) {
+    const code = String(match[1] ?? '').toUpperCase();
+    remember(sizeToken(code), code, '');
+  }
+  for (const size of listedSizes(text)) remember(size, '', '');
+  return [...bySize.values()].sort((left, right) => Number(left.size) - Number(right.size));
 }
 
 function splitRow(line: string): { label: string; value: string } | null {
@@ -1844,7 +1873,7 @@ function subcategoryForSize(size: string, written: string, catalog: Catalog, sou
   return '';
 }
 
-function parsedToVariants(parsed: ParsedNotes, catalog: Catalog): BriefVariant[] {
+function parsedToVariants(parsed: ParsedNotes, catalog: Catalog, notes = ''): BriefVariant[] {
   const source = parsed.variants[0];
   const sourceSize = source?.size || '';
   const sizes = parsed.variants.length > 0 ? parsed.variants : [{ size: sourceSize, modelCode: '', sku: '' }];
@@ -1860,8 +1889,8 @@ function parsedToVariants(parsed: ParsedNotes, catalog: Catalog): BriefVariant[]
     });
     return {
       label: item.size ? `${item.size}"` : '',
-      sku: item.sku,
-      price: '',
+      sku: item.sku || (item.modelCode ? skuForSize(notes, item.size, item.modelCode) : ''),
+      price: priceForSize(notes, item.size),
       subcategory: {
         id: '',
         nameHe: subcategoryForSize(item.size, parsed.subcategoryName, catalog, item.size === sourceSize),
@@ -1873,15 +1902,17 @@ function parsedToVariants(parsed: ParsedNotes, catalog: Catalog): BriefVariant[]
 }
 
 async function applyParsed(input: z.infer<typeof inputSchema>, parsed: ParsedNotes, catalog: Catalog): Promise<ProductIntake> {
-  const fitted = parsedToVariants(parsed, catalog);
+  const notes = `${input.model}\n${input.notes}`;
+  parsed = { ...parsed, variants: collectVariantSizes(input.model, notes, parsed.variants) };
+  const fitted = fitSizes(input.model, input.notes, parsedToVariants(parsed, catalog, notes));
   const proposal: Proposal = {
-    nameHe: familyName(parsed.nameHe || input.model, parsed.variants.length),
+    nameHe: familyName(parsed.nameHe || input.model, fitted.length),
     nameAr: '',
     brand: { id: '', name: parsed.brandName, slug: '' },
     category: { id: '', nameHe: parsed.categoryName, nameAr: '', slug: '' },
     subcategory: fitted[0]?.subcategory ?? emptySubcategory,
     specs: fitted[0]?.specs ?? [],
-    price: '',
+    price: fitted[0]?.price ?? '',
     color: fitted[0]?.label ?? '',
   };
   await fillArabic(proposal).catch(() => proposal);
@@ -1908,7 +1939,7 @@ async function applyParsed(input: z.infer<typeof inputSchema>, parsed: ParsedNot
     variants.push({
       label: clip(variant.label),
       sku: clip(variant.sku),
-      price: '',
+      price: clip(variant.price),
       subcategoryId,
       specs: specs.values,
       specsAr: specs.arabic,
@@ -1926,7 +1957,7 @@ async function applyParsed(input: z.infer<typeof inputSchema>, parsed: ParsedNot
       fields,
       specs: first?.specs ?? {},
       specsAr: first?.specsAr ?? {},
-      price: '',
+      price: first?.price ?? '',
       color: first?.label ?? '',
       variants,
     },
@@ -2075,7 +2106,7 @@ async function askBrief(input: z.infer<typeof inputSchema>, catalog: Catalog): P
       {
         role: 'system',
         content:
-          'Fill one store product only from the seller notes. The notes may be any layout: sentences, a loose spec list, a label on one line and its value on the next, or a mix. Copy every fact that is written there, and copy nothing else. Do not use knowledge of the brand, the model, or this kind of product. Do not browse, do not recall a spec sheet, and do not add a typical feature, price, warranty, size, or description. If the notes do not state a fact, leave it out. Attached images show this product only. Do not turn a recognized product into specifications that are not written in the notes. A brand inside a sentence still counts. Choose the closest existing category for the product type written in the notes, or name one when none fits. Do not return an empty product because the notes are not a catalog table. Section features is one short capability copied from the notes. A measured fact such as dimensions, weight, capacity, pressure, power, model code, catalog number, color, or warranty is its own short field only when that fact is written. Do not fill a spec heading of several words with one short phrase, and do not put a fact under a heading it does not belong to. A model can come in several sizes when those sizes are written. Return one variant per written size. label is the size, such as 55", or the color when no size is written. sku is the model code or the written catalog number. If the code contains the inch number, change only that number for another written size. Do not calculate or change any other number. price is digits only when that size has its own price written. Never copy one size\'s price onto another size. subcategory is filled only when a subcategory is written. specs are the written facts. Leave a measurement empty when it was not written. Ignore phone numbers, addresses, store names, shipping, and payment badges. nameHe, labelHe, and value are Hebrew. nameAr, labelAr, and valueAr are Arabic. Keep numbers, units, and model codes unchanged. Copy an existing brand, category, or subcategory id when the notes match it. Otherwise leave the id empty and supply both names. Leave fieldId empty and supply both field names for each fact. Do not fill stock.',
+          'Fill one store product only from the seller notes. The notes may be any layout: sentences, a loose spec list, a label on one line and its value on the next, or a mix. Copy every fact that is written there, and copy nothing else. Do not use knowledge of the brand, the model, or this kind of product. Do not browse, do not recall a spec sheet, and do not add a typical feature, price, warranty, size, or description. If the notes do not state a fact, leave it out. Attached images show this product only. Do not turn a recognized product into specifications that are not written in the notes. A brand inside a sentence still counts. Choose the closest existing category for the product type written in the notes, or name one when none fits. Do not return an empty product because the notes are not a catalog table. Section features is one short capability copied from the notes. A measured fact such as dimensions, weight, capacity, pressure, power, model code, catalog number, color, or warranty is its own short field only when that fact is written. Do not fill a spec heading of several words with one short phrase, and do not put a fact under a heading it does not belong to. Critical for TVs and similar products: when the notes mention several sizes for the same model (for example 55, 65, and 75, or three different model codes that differ only by the inch digits), you MUST return a separate variants[] entry for EVERY written size. Never collapse multiple sizes into one variant. label is the size, such as 55", or the color when no size is written. sku is that size\'s model code or catalog number. If the code contains the inch number, change only that number for another written size. Do not calculate or change any other number. price is digits only when that size has its own price written. Never copy one size\'s price onto another size. subcategory is filled only when a subcategory is written. specs are the written facts for that size. Leave a measurement empty when it was not written. Ignore phone numbers, addresses, store names, shipping, and payment badges. nameHe, labelHe, and value are Hebrew. nameAr, labelAr, and valueAr are Arabic. Keep numbers, units, and model codes unchanged. Copy an existing brand, category, or subcategory id when the notes match it. Otherwise leave the id empty and supply both names. Leave fieldId empty and supply both field names for each fact. Do not fill stock.',
       },
       { role: 'user', content },
     ],
@@ -2221,23 +2252,37 @@ function fitSizes(model: string, notes: string, variants: BriefVariant[]): Brief
     subcategory: emptySubcategory,
     specs: [],
   };
-  const sizes = listedSizes(`${model}\n${notes}\n${cleaned.map((variant) => `${variant.label} ${variant.sku}`).join('\n')}`);
+  const haystack = `${model}\n${notes}\n${cleaned.map((variant) => `${variant.label} ${variant.sku}`).join('\n')}`;
+  const sizes = [
+    ...new Set([
+      ...listedSizes(haystack),
+      ...collectVariantSizes(model, notes, []).map((item) => item.size),
+      ...cleaned.map((variant) => sizeToken(variant.label) || sizeToken(variant.sku)).filter(Boolean),
+    ]),
+  ].filter((size) => {
+    const value = Number(size);
+    return value >= 32 && value <= 120;
+  });
   if (sizes.length < 2) return cleaned.length > 0 ? cleaned : [source];
   const sourceSize = sizeToken(source.label) || sizeToken(source.sku) || sizeToken(model) || sizes[0] || '';
-  if (cleaned.length >= sizes.length) return cleaned;
   const known = new Map<string, BriefVariant>();
   for (const variant of cleaned) {
     const size = sizeToken(variant.label) || sizeToken(variant.sku);
     if (size) known.set(size, variant);
   }
+  if (known.size >= sizes.length) {
+    return sizes.map((size) => known.get(size)).filter((variant): variant is BriefVariant => Boolean(variant));
+  }
   return sizes.map((size) => known.get(size) ?? adaptVariant(source, sourceSize, size, notes));
 }
 
 function listedSizes(text: string): string[] {
-  const marked = [...text.matchAll(/(\d{2,3})\s*(?:"|″|״|אינץ)/g)].map((match) => match[1] ?? '');
-  const line = text.match(/(?:גדלים|מידות|sizes?)[^\n]{0,80}/i)?.[0] ?? '';
-  const listed = [...line.matchAll(/\b(\d{2,3})\b/g)].map((match) => match[1] ?? '');
-  return [...new Set([...marked, ...listed])].filter((size) => {
+  const marked = [...text.matchAll(/(\d{2,3})\s*(?:"|″|״|''|'|׳)?\s*(?:אינץ['׳"]?|"|″|״)/g)].map((match) => match[1] ?? '');
+  const bareInch = [...text.matchAll(/(\d{2,3})\s*(?:"|″|״)/g)].map((match) => match[1] ?? '');
+  const lines = [...text.matchAll(/(?:גדלים|גודל(?:\s*מסך)?|מידות|sizes?)[^\n]{0,120}/gi)].flatMap((match) =>
+    [...(match[0] ?? '').matchAll(/\b(\d{2,3})\b/g)].map((item) => item[1] ?? ''),
+  );
+  return [...new Set([...marked, ...bareInch, ...lines])].filter((size) => {
     const value = Number(size);
     return value >= 32 && value <= 120;
   });
