@@ -59,11 +59,11 @@ const proposalSchema = z.object({
         labelAr: z.string().trim().max(200).default(''),
         type: z.enum(['text', 'number', 'boolean']).default('text'),
         section: z.enum(['spec', 'features', 'info']).default('features'),
-        value: z.string().trim().max(4_000).default(''),
-        valueAr: z.string().trim().max(4_000).default(''),
+        value: z.string().trim().max(20_000).default(''),
+        valueAr: z.string().trim().max(20_000).default(''),
       }),
     )
-    .max(48)
+    .max(80)
     .default([]),
   price: z.string().trim().max(20).default(''),
   color: z.string().trim().max(40).default(''),
@@ -1491,7 +1491,7 @@ function parseNotes(model: string, notes: string): ParsedNotes {
       brandName = cleanValue;
       context = '';
     }
-    if (cleanLabel === 'מידות' && !/\d/.test(cleanValue)) {
+    if ((cleanLabel === 'מידות' || cleanLabel === 'מימדים') && !/\d/.test(cleanValue)) {
       context = cleanValue;
       return;
     }
@@ -1500,14 +1500,22 @@ function parseNotes(model: string, notes: string): ParsedNotes {
     const noted = Boolean(stand && (canonical || /משקל|מעמד השולחני/.test(cleanLabel)));
     const storedLabel = canonical?.label ?? (noted || !context || context === cleanLabel ? cleanLabel : `${context} — ${cleanLabel}`);
     const storedValue = canonical?.value ?? cleanValue;
-    if (specs.some((spec) => same(spec.labelHe, storedLabel))) return;
     if (noted) measures.push({ stand, text: `${measureName(cleanLabel)} ${cleanValue}` });
+    const existing = specs.find((spec) => same(spec.labelHe, storedLabel));
+    if (existing) {
+      // Never drop later facts that share a label — append the full text.
+      if (storedValue && !existing.value.includes(storedValue)) {
+        existing.value = `${existing.value.trim()}\n${storedValue}`.trim();
+      }
+      if (section === 'spec' || existing.value.length >= 80) existing.section = existing.section === 'features' && section === 'spec' ? 'spec' : existing.section;
+      return;
+    }
     specs.push({
       fieldId: '',
       labelHe: storedLabel,
       labelAr: '',
       type: section === 'features' ? guessType(storedValue) : 'text',
-      section,
+      section: storedValue.length >= 80 ? 'spec' : section,
       value: storedValue,
       valueAr: '',
     });
@@ -1522,8 +1530,9 @@ function parseNotes(model: string, notes: string): ParsedNotes {
     const combined = [prose, notesText].filter(Boolean).join('\n');
     const narrative = prose.length >= 60 || bulletCount >= 2;
     if (narrative) context = '';
-    if (heading && combined) remember(heading, combined, narrative ? 'spec' : 'info');
-    else if (!heading && prose) remember('מפרט', prose, 'spec');
+    const cleanHeading = heading.replace(/:\s*$/, '').trim();
+    if (cleanHeading && combined) remember(cleanHeading, combined, narrative ? 'spec' : 'features');
+    else if (!cleanHeading && combined) remember('מפרט', combined, narrative ? 'spec' : 'info');
     heading = '';
   };
 
@@ -1565,6 +1574,13 @@ function parseNotes(model: string, notes: string): ParsedNotes {
       continue;
     }
     const upcoming = lines[index + 1] ?? '';
+    // Section headers like "מערכת הפעלה:" / "מסך:" / "מימדים:"
+    const sectionOnly = line.match(/^([^:]{2,40}):\s*$/);
+    if (sectionOnly?.[1]) {
+      flush();
+      heading = sectionOnly[1].trim().replace(/^מימדים$/u, 'מידות');
+      continue;
+    }
     const stacked = stackedPair(line, upcoming);
     if (stacked) {
       flush();
@@ -1600,9 +1616,12 @@ function parseNotes(model: string, notes: string): ParsedNotes {
       bullets.push(line);
       continue;
     }
-    if (isTitle(line) && (isLongLine(upcoming) || isSentence(upcoming) || isBulletLine(upcoming) || Boolean(splitRow(upcoming)))) {
+    if (
+      isTitle(line.replace(/:\s*$/, '')) &&
+      (isLongLine(upcoming) || isSentence(upcoming) || isBulletLine(upcoming) || Boolean(splitRow(upcoming)) || (upcoming.length > 0 && upcoming.length <= 80))
+    ) {
       flush();
-      heading = line;
+      heading = line.replace(/:\s*$/, '').trim();
       continue;
     }
     if (isLongLine(line) || isSentence(line)) {
@@ -1644,12 +1663,29 @@ function parseNotes(model: string, notes: string): ParsedNotes {
   if (source?.sku && !specs.some((spec) => isSkuLabel(spec.labelHe))) remember('מק"ט', source.sku, 'features');
   if (sourceSize && !specs.some((spec) => /גודל מסך/.test(spec.labelHe))) remember('גודל מסך', sourceSize, 'features');
   if (!brandName) {
-    const brand = nameHe.match(/\b(Samsung|LG|Sony|Philips|TCL|Hisense|Xiaomi)\b/i)?.[1] ?? '';
+    const brand =
+      nameHe.match(/\b(Samsung|LG|Sony|Philips|TCL|Hisense|Xiaomi|Google)\b/i)?.[1] ??
+      text.match(/\b(Samsung|LG|Sony|Philips|TCL|Hisense|Xiaomi)\b/i)?.[1] ??
+      '';
     brandName = brand;
   }
-  if (!categoryName && /טלוויז/.test(`${nameHe}\n${text.slice(0, 400)}`)) categoryName = 'טלוויזיות';
+  if (!categoryName) {
+    categoryName = inferCategory(`${nameHe}\n${text.slice(0, 800)}`);
+  }
   if (/טלוויזיה חכמה/.test(`${nameHe}\n${text.slice(0, 500)}`) && !specs.some((spec) => spec.labelHe === 'טלוויזיה חכמה')) {
     remember('טלוויזיה חכמה', 'כן', 'features');
+  }
+  // Guarantee: keep the seller notes verbatim so nothing is shortened or dropped.
+  if (text.length >= 40 && !specs.some((spec) => spec.labelHe === 'תיאור מלא')) {
+    specs.push({
+      fieldId: '',
+      labelHe: 'תיאור מלא',
+      labelAr: '',
+      type: 'text',
+      section: 'spec',
+      value: text,
+      valueAr: '',
+    });
   }
   const ordered = collectVariantSizes(model, `${nameHe}\n${text}`, variants);
   if (ordered.length === 0) {
@@ -1752,14 +1788,26 @@ function notesBlocksForSizes(notes: string, variants: ParsedSize[]): { shared: s
 }
 
 function mergeSpecs(base: Proposal['specs'], extra: Proposal['specs']): Proposal['specs'] {
-  const merged = [...base];
+  const merged = base.map((spec) => ({ ...spec }));
   for (const item of extra) {
     if (!item.value.trim()) continue;
     const index = merged.findIndex(
       (spec) => same(spec.labelHe, item.labelHe) || (item.labelAr && same(spec.labelAr, item.labelAr)),
     );
-    if (index >= 0) merged[index] = { ...item };
-    else merged.push(item);
+    if (index >= 0) {
+      const previous = merged[index]!;
+      const value =
+        previous.value.includes(item.value) ? previous.value
+        : item.value.includes(previous.value) ? item.value
+        : `${previous.value.trim()}\n${item.value.trim()}`.trim();
+      merged[index] = {
+        ...previous,
+        ...item,
+        value,
+        valueAr: item.valueAr || previous.valueAr,
+        labelAr: item.labelAr || previous.labelAr,
+      };
+    } else merged.push({ ...item });
   }
   return merged;
 }
@@ -1798,12 +1846,11 @@ function rowsFromBlock(block: string): Proposal['specs'] {
 function specsForSize(item: ParsedSize, shared: Proposal['specs'], blockNotes: string): Proposal['specs'] {
   const block = blockNotes.trim();
   const parsedLocal = block.length >= 40 ? parseNotes(item.modelCode || item.size, block) : null;
-  const fromBlock = (parsedLocal?.specs.length ? parsedLocal.specs : rowsFromBlock(block)).filter(
-    (spec) => !isIdentitySpec(spec.labelHe),
-  );
+  const fromBlock = parsedLocal?.specs.length ? parsedLocal.specs : rowsFromBlock(block);
+  // Keep shared + block facts; identity fields are normalized below without dropping other text.
   const next = mergeSpecs(
     shared.filter((spec) => !isIdentitySpec(spec.labelHe)),
-    fromBlock,
+    fromBlock.filter((spec) => !isIdentitySpec(spec.labelHe) || Boolean(spec.value.trim())),
   ).map((spec) => ({ ...spec, valueAr: '', labelAr: spec.labelAr || '' }));
 
   const ensure = (labelHe: string, value: string, type: 'text' | 'number' = 'text') => {
@@ -2051,22 +2098,45 @@ function parsedToVariants(parsed: ParsedNotes, catalog: Catalog, notes = ''): Br
 
 async function applyParsed(input: z.infer<typeof inputSchema>, parsed: ParsedNotes, catalog: Catalog): Promise<ProductIntake> {
   const notes = `${input.model}\n${input.notes}`;
-  parsed = { ...parsed, variants: collectVariantSizes(input.model, notes, parsed.variants) };
+  const categoryName = parsed.categoryName.trim() || inferCategory(notes);
+  const brandName = parsed.brandName.trim() || brandFromNotes(notes);
+  parsed = {
+    ...parsed,
+    brandName,
+    categoryName,
+    variants: collectVariantSizes(input.model, notes, parsed.variants),
+  };
+  if (!parsed.nameHe.trim()) {
+    parsed = { ...parsed, nameHe: notes.split('\n').map((line) => line.trim()).find((line) => line.length > 8 && !line.endsWith(':')) || input.model };
+  }
   const fitted = parsedToVariants(parsed, catalog, notes);
+  if (fitted.length === 0 || (fitted[0] && fitted[0].specs.length === 0 && parsed.specs.length > 0)) {
+    // Single-size freeform notes: use the full parse as the one variant.
+    const only = fitted[0] ?? {
+      label: sizeToken(input.model) ? `${sizeToken(input.model)}"` : '',
+      sku: input.model,
+      price: '',
+      subcategory: emptySubcategory,
+      specs: [],
+    };
+    only.specs = parsed.specs.map((spec) => ({ ...spec, valueAr: '' }));
+    if (!fitted[0]) fitted.push(only);
+    else fitted[0] = only;
+  }
   const proposal: Proposal = {
     nameHe: familyName(parsed.nameHe || input.model, fitted.length),
     nameAr: '',
-    brand: { id: '', name: parsed.brandName, slug: '' },
-    category: { id: '', nameHe: parsed.categoryName, nameAr: '', slug: '' },
+    brand: { id: '', name: brandName, slug: '' },
+    category: { id: '', nameHe: categoryName, nameAr: '', slug: '' },
     subcategory: fitted[0]?.subcategory ?? emptySubcategory,
     specs: fitted[0]?.specs ?? [],
     price: fitted[0]?.price ?? '',
     color: fitted[0]?.label ?? '',
   };
-  // Translate product shell + every variant's own specs (do not swallow failures into empty Arabic).
-  await fillArabic(proposal);
+  // Arabic is best-effort — never fail the whole fill if translation is down.
+  await fillArabic(proposal).catch(() => proposal);
   for (const variant of fitted) {
-    await fillArabic({ ...proposal, specs: variant.specs, subcategory: variant.subcategory });
+    await fillArabic({ ...proposal, specs: variant.specs, subcategory: variant.subcategory }).catch(() => proposal);
   }
   const created = { brand: null as string | null, category: null as string | null, subcategory: null as string | null, fields: [] as string[] };
   const slugs = new Set([...catalog.brands.map((brand) => brand.slug), ...catalog.categories.map((category) => category.slug)]);
@@ -2140,7 +2210,17 @@ async function intakeBrief(input: z.infer<typeof inputSchema>): Promise<ProductI
       catalog,
     );
   }
-  if (canApplyParsed(parsed)) return applyParsed(input, parsed, catalog);
+  if (canApplyParsed({ ...parsed, categoryName: parsed.categoryName || inferCategory(notes) })) {
+    return applyParsed(
+      input,
+      {
+        ...parsed,
+        brandName: parsed.brandName || brandFromNotes(notes),
+        categoryName: parsed.categoryName || inferCategory(notes),
+      },
+      catalog,
+    );
+  }
   const brief = await askBrief(input, catalog);
   if (!brief.brand.name.trim() || !supportedFact(brief.brand.name, notes)) {
     const name = brandFromNotes(notes);
@@ -2325,9 +2405,9 @@ const briefResultSchema = z.object({
 });
 
 function canApplyParsed(parsed: ParsedNotes): boolean {
-  const brand = parsed.brandName.trim();
   const category = parsed.categoryName.trim();
-  if (!brand || !category) return false;
+  // Brand is optional in seller notes; category can be inferred from the text.
+  if (!category && parsed.specs.length < 6) return false;
   return parsed.specs.length >= 4 || parsed.variants.length >= 2;
 }
 
@@ -2486,7 +2566,8 @@ async function ensureBrand(proposal: Proposal, catalog: Catalog, slugs: Set<stri
   );
   if (existing) return existing.id;
   const name = clip(proposal.brand.name);
-  if (!name) throw new AppError(422, 'agent_failed', 'Brand was not found on the page');
+  // Notes-based fill often has no brand written — leave empty for the admin to pick.
+  if (!name) return '';
   const id = newId('brand');
   await createBrand({ id, name, slug: uniqueSlug(proposal.brand.slug || name, slugs), image: '' });
   created.brand = name;
@@ -2560,10 +2641,18 @@ async function ensureSpecs(
     if (field.type === 'number') stored = numberValue(stored);
     if (!stored) continue;
     const previous = values[field.id] ?? '';
-    if (previous.length >= 80 && stored.length <= previous.length) continue;
-    if (field.section === 'spec' && headingWords(field.label.he) >= 3 && stored.length < 80 && !sharesWord(field.label.he, `${spec.labelHe} ${stored}`)) continue;
+    // Keep every written fact: append when both differ, never prefer a shorter value.
+    if (previous && previous !== stored && !previous.includes(stored) && !stored.includes(previous)) {
+      stored = `${previous}\n${stored}`.trim();
+    } else if (previous && stored.includes(previous)) {
+      // keep the longer/complete version
+    } else if (previous && previous.includes(stored)) {
+      stored = previous;
+    }
     values[field.id] = stored;
-    arabic[field.id] = field.type === 'boolean' || field.type === 'number' ? stored : spec.valueAr.trim();
+    const ar = field.type === 'boolean' || field.type === 'number' ? stored : spec.valueAr.trim();
+    if (ar) arabic[field.id] = ar;
+    else if (!arabic[field.id]) arabic[field.id] = '';
     if (Object.keys(values).length >= 80) break;
   }
   return { values, arabic };
