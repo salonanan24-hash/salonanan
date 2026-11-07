@@ -1437,7 +1437,7 @@ type ParsedNotes = {
 function parseNotes(model: string, notes: string): ParsedNotes {
   const empty: ParsedNotes = { nameHe: '', brandName: '', categoryName: '', subcategoryName: '', specs: [], variants: [] };
   const text = notes.replace(/[\u200e\u200f\u05c1\u05bf]/g, '').replace(/\r/g, '').trim();
-  if (text.length < 80) return empty;
+  if (text.length < 40) return empty;
   const variants: ParsedSize[] = [];
   const seen = new Set<string>();
   const body = text.replace(
@@ -1662,12 +1662,29 @@ function parseNotes(model: string, notes: string): ParsedNotes {
   return { nameHe, brandName, categoryName, subcategoryName, specs, variants: ordered };
 }
 
-/** Gather every written TV/monitor size from model codes, SKUs, and size mentions. */
+function modelFamilyKey(code: string): string {
+  return code.toUpperCase().replace(/\d{2,3}/, '');
+}
+
+function sameModelFamily(left: string, right: string): boolean {
+  if (!left || !right) return true;
+  const a = modelFamilyKey(left);
+  const b = modelFamilyKey(right);
+  if (a.length < 4 || b.length < 4) return false;
+  return a === b || a.startsWith(b.slice(0, 5)) || b.startsWith(a.slice(0, 5));
+}
+
+/**
+ * Sizes come only from written model codes of the same family (and optional SKUs).
+ * Do NOT invent sizes from dimension numbers in "מידות" — that created fake extras.
+ */
 function collectVariantSizes(model: string, notes: string, current: ParsedSize[]): ParsedSize[] {
   const text = `${model}\n${notes}`;
+  const anchor = modelCode(model) || current.find((item) => item.modelCode)?.modelCode || '';
   const bySize = new Map<string, ParsedSize>();
   const remember = (size: string, modelCodeValue: string, sku: string) => {
     if (!size) return;
+    if (anchor && modelCodeValue && !sameModelFamily(anchor, modelCodeValue)) return;
     const previous = bySize.get(size);
     bySize.set(size, {
       size,
@@ -1675,7 +1692,9 @@ function collectVariantSizes(model: string, notes: string, current: ParsedSize[]
       sku: sku || previous?.sku || '',
     });
   };
-  for (const item of current) remember(item.size, item.modelCode, item.sku);
+  for (const item of current) {
+    if (item.modelCode || item.sku) remember(item.size || sizeToken(item.modelCode), item.modelCode, item.sku);
+  }
   for (const match of text.matchAll(/([A-Za-z]{1,8}\d{2}[A-Za-z0-9-]{3,})[^\n]{0,48}מק.?ט\s*[:：]?\s*(\d{4,8})/g)) {
     const code = String(match[1] ?? '').toUpperCase();
     remember(sizeToken(code), code, String(match[2] ?? ''));
@@ -1684,8 +1703,112 @@ function collectVariantSizes(model: string, notes: string, current: ParsedSize[]
     const code = String(match[1] ?? '').toUpperCase();
     remember(sizeToken(code), code, '');
   }
-  for (const size of listedSizes(text)) remember(size, '', '');
+  // Explicit size list only as a last resort when no model codes were found.
+  if (bySize.size === 0) {
+    for (const size of listedSizes(text)) remember(size, '', '');
+  }
   return [...bySize.values()].sort((left, right) => Number(left.size) - Number(right.size));
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Split seller notes into a shared preamble + one block per size/model. */
+function notesBlocksForSizes(notes: string, variants: ParsedSize[]): { shared: string; bySize: Map<string, string> } {
+  const text = notes.replace(/\r/g, '');
+  const markers: { index: number; size: string }[] = [];
+  for (const item of variants) {
+    if (!item.size) continue;
+    let index = -1;
+    if (item.modelCode) {
+      const found = text.search(new RegExp(`\\b${escapeRegExp(item.modelCode)}\\b`, 'i'));
+      if (found >= 0) index = found;
+    }
+    if (index < 0) {
+      const found = text.search(new RegExp(`(?:^|\\n)\\s*${escapeRegExp(item.size)}\\s*(?:"|″|״|אינץ)`, 'i'));
+      if (found >= 0) index = found;
+    }
+    if (index >= 0 && !markers.some((marker) => marker.size === item.size)) markers.push({ index, size: item.size });
+  }
+  markers.sort((left, right) => left.index - right.index);
+  const bySize = new Map<string, string>();
+  if (markers.length === 0) return { shared: text, bySize };
+  const shared = text.slice(0, markers[0]!.index).trim();
+  for (let index = 0; index < markers.length; index += 1) {
+    const start = markers[index]!.index;
+    const end = index + 1 < markers.length ? markers[index + 1]!.index : text.length;
+    bySize.set(markers[index]!.size, text.slice(start, end).trim());
+  }
+  return { shared, bySize };
+}
+
+function mergeSpecs(base: Proposal['specs'], extra: Proposal['specs']): Proposal['specs'] {
+  const merged = [...base];
+  for (const item of extra) {
+    if (!item.value.trim()) continue;
+    const index = merged.findIndex(
+      (spec) => same(spec.labelHe, item.labelHe) || (item.labelAr && same(spec.labelAr, item.labelAr)),
+    );
+    if (index >= 0) merged[index] = { ...item };
+    else merged.push(item);
+  }
+  return merged;
+}
+
+function specsForSize(
+  item: ParsedSize,
+  shared: Proposal['specs'],
+  blockNotes: string,
+  fallback: Proposal['specs'],
+  copyFallback: boolean,
+): Proposal['specs'] {
+  const local = blockNotes.trim().length >= 40 ? parseNotes(item.modelCode || item.size, blockNotes) : null;
+  const fromBlock = local?.specs ?? [];
+  const hasOwnBody = fromBlock.length >= 2 || blockNotes.trim().length >= 100;
+  // Only copy another size's full spec sheet when this size has no block of its own.
+  const base = hasOwnBody
+    ? mergeSpecs(shared, fromBlock)
+    : copyFallback
+      ? fallback.map((spec) => ({ ...spec }))
+      : shared.map((spec) => ({ ...spec }));
+  const next = base
+    .filter((spec) => {
+      if (hasOwnBody || copyFallback) return true;
+      // Shared-only path: drop size-specific measurements/prose that belong to another size.
+      if (/(רוחב|גובה|עומק|משקל|מידות|ברקוד)/i.test(spec.labelHe)) return false;
+      if (spec.section === 'spec' && spec.value.length > 80) return false;
+      return true;
+    })
+    .map((spec) => {
+      if (isSkuLabel(spec.labelHe) && item.sku) return { ...spec, value: item.sku, valueAr: '' };
+      if (spec.labelHe === 'דגם' && item.modelCode) return { ...spec, value: item.modelCode, valueAr: '' };
+      if (/גודל מסך/.test(spec.labelHe) && item.size) return { ...spec, value: item.size, valueAr: '' };
+      return { ...spec, valueAr: '' };
+    });
+  const ensure = (labelHe: string, value: string, type: 'text' | 'number' = 'text') => {
+    if (!value) return;
+    const index = next.findIndex(
+      (spec) => same(spec.labelHe, labelHe) || (labelHe === 'מק"ט' && isSkuLabel(spec.labelHe)),
+    );
+    if (index >= 0) {
+      next[index] = { ...next[index]!, value, valueAr: '' };
+      return;
+    }
+    next.unshift({
+      fieldId: '',
+      labelHe,
+      labelAr: '',
+      type,
+      section: 'features',
+      value,
+      valueAr: '',
+    });
+  };
+  ensure('דגם', item.modelCode);
+  ensure('מק"ט', item.sku);
+  ensure('גודל מסך', item.size, 'number');
+  return next;
 }
 
 function splitRow(line: string): { label: string; value: string } | null {
@@ -1874,26 +1997,37 @@ function subcategoryForSize(size: string, written: string, catalog: Catalog, sou
 }
 
 function parsedToVariants(parsed: ParsedNotes, catalog: Catalog, notes = ''): BriefVariant[] {
-  const source = parsed.variants[0];
-  const sourceSize = source?.size || '';
-  const sizes = parsed.variants.length > 0 ? parsed.variants : [{ size: sourceSize, modelCode: '', sku: '' }];
+  const sizes = parsed.variants.length > 0 ? parsed.variants : [{ size: '', modelCode: '', sku: '' }];
+  const source = sizes[0] ?? { size: '', modelCode: '', sku: '' };
+  const sourceSize = source.size || '';
+  const sized = sizes.filter((item) => item.size);
+  const { shared, bySize } = notesBlocksForSizes(notes, sized);
+  const sharedParsed = shared.length >= 40 ? parseNotes(parsed.nameHe || source.modelCode || '', shared) : null;
+  // With multiple size blocks, never treat the whole-document merge as "shared" — that cloned size #1 onto the rest.
+  const sharedSpecs = (
+    sharedParsed?.specs.length
+      ? sharedParsed.specs
+      : bySize.size >= 2
+        ? []
+        : parsed.specs
+  ).filter((spec) => !isSkuLabel(spec.labelHe) && spec.labelHe !== 'דגם' && !/גודל מסך/.test(spec.labelHe));
+  const sourceBlock = (source.size && bySize.get(source.size)) || '';
+  const sourceSpecs = specsForSize(source, sharedSpecs, sourceBlock, parsed.specs, true);
+
   return sizes.map((item) => {
-    const specs = parsed.specs.map((spec) => {
-      const value = item.size === sourceSize ? spec.value : adaptValue(spec.labelHe, spec.value, sourceSize, item.size);
-      const replaced = source?.modelCode && item.modelCode ? value.split(source.modelCode).join(item.modelCode) : value;
-      if (isSkuLabel(spec.labelHe) && item.sku) return { ...spec, value: item.sku, valueAr: '' };
-      if (spec.labelHe === 'דגם' && item.modelCode) return { ...spec, value: item.modelCode, valueAr: '' };
-      if (/גודל מסך/.test(spec.labelHe) && item.size) return { ...spec, value: item.size, valueAr: '' };
-      if (/ברקוד|barcode/i.test(spec.labelHe) && item.size !== sourceSize) return { ...spec, value: '', valueAr: '' };
-      return { ...spec, value: replaced, valueAr: '' };
+    const block = (item.size && bySize.get(item.size)) || '';
+    const isSource = item.size === sourceSize;
+    const specs = specsForSize(item, sharedSpecs, block, sourceSpecs, isSource && bySize.size < 2).map((spec) => {
+      if (/ברקוד|barcode/i.test(spec.labelHe) && !isSource) return { ...spec, value: '', valueAr: '' };
+      return spec;
     });
     return {
       label: item.size ? `${item.size}"` : '',
-      sku: item.sku || (item.modelCode ? skuForSize(notes, item.size, item.modelCode) : ''),
-      price: priceForSize(notes, item.size),
+      sku: item.sku || (item.modelCode ? skuForSize(block || notes, item.size, item.modelCode) : ''),
+      price: priceForSize(block || notes, item.size),
       subcategory: {
         id: '',
-        nameHe: subcategoryForSize(item.size, parsed.subcategoryName, catalog, item.size === sourceSize),
+        nameHe: subcategoryForSize(item.size, parsed.subcategoryName || sharedParsed?.subcategoryName || '', catalog, isSource),
         nameAr: '',
       },
       specs,
@@ -1903,8 +2037,9 @@ function parsedToVariants(parsed: ParsedNotes, catalog: Catalog, notes = ''): Br
 
 async function applyParsed(input: z.infer<typeof inputSchema>, parsed: ParsedNotes, catalog: Catalog): Promise<ProductIntake> {
   const notes = `${input.model}\n${input.notes}`;
+  // Stick to model-code sizes only — do not invent extras via fitSizes/listedSizes.
   parsed = { ...parsed, variants: collectVariantSizes(input.model, notes, parsed.variants) };
-  const fitted = fitSizes(input.model, input.notes, parsedToVariants(parsed, catalog, notes));
+  const fitted = parsedToVariants(parsed, catalog, notes);
   const proposal: Proposal = {
     nameHe: familyName(parsed.nameHe || input.model, fitted.length),
     nameAr: '',
@@ -2252,37 +2387,52 @@ function fitSizes(model: string, notes: string, variants: BriefVariant[]): Brief
     subcategory: emptySubcategory,
     specs: [],
   };
-  const haystack = `${model}\n${notes}\n${cleaned.map((variant) => `${variant.label} ${variant.sku}`).join('\n')}`;
-  const sizes = [
-    ...new Set([
-      ...listedSizes(haystack),
-      ...collectVariantSizes(model, notes, []).map((item) => item.size),
-      ...cleaned.map((variant) => sizeToken(variant.label) || sizeToken(variant.sku)).filter(Boolean),
-    ]),
-  ].filter((size) => {
-    const value = Number(size);
-    return value >= 32 && value <= 120;
-  });
+  // Prefer real model codes from the notes. Never invent sizes from measurement numbers.
+  const coded = collectVariantSizes(model, notes, []);
+  const sizes =
+    coded.length >= 2
+      ? coded.map((item) => item.size)
+      : [
+          ...new Set([
+            ...listedSizes(`${model}\n${notes}`),
+            ...cleaned.map((variant) => sizeToken(variant.label) || sizeToken(variant.sku)).filter(Boolean),
+          ]),
+        ].filter((size) => {
+          const value = Number(size);
+          return value >= 32 && value <= 120;
+        });
   if (sizes.length < 2) return cleaned.length > 0 ? cleaned : [source];
-  const sourceSize = sizeToken(source.label) || sizeToken(source.sku) || sizeToken(model) || sizes[0] || '';
   const known = new Map<string, BriefVariant>();
   for (const variant of cleaned) {
     const size = sizeToken(variant.label) || sizeToken(variant.sku);
     if (size) known.set(size, variant);
   }
-  if (known.size >= sizes.length) {
-    return sizes.map((size) => known.get(size)).filter((variant): variant is BriefVariant => Boolean(variant));
+  const blocks = notesBlocksForSizes(notes, coded);
+  const sharedOnly = source.specs.filter(
+    (spec) => !isSkuLabel(spec.labelHe) && spec.labelHe !== 'דגם' && !/גודל מסך/.test(spec.labelHe),
+  );
+  for (const item of coded) {
+    if (known.has(item.size)) continue;
+    const block = blocks.bySize.get(item.size) || '';
+    known.set(item.size, {
+      label: `${item.size}"`,
+      sku: item.sku || item.modelCode,
+      price: priceForSize(block || notes, item.size),
+      subcategory: source.subcategory,
+      specs: specsForSize(item, sharedOnly, block, source.specs, false),
+    });
   }
-  return sizes.map((size) => known.get(size) ?? adaptVariant(source, sourceSize, size, notes));
+  return sizes.map((size) => known.get(size)).filter((variant): variant is BriefVariant => Boolean(variant));
 }
 
 function listedSizes(text: string): string[] {
-  const marked = [...text.matchAll(/(\d{2,3})\s*(?:"|″|״|''|'|׳)?\s*(?:אינץ['׳"]?|"|″|״)/g)].map((match) => match[1] ?? '');
-  const bareInch = [...text.matchAll(/(\d{2,3})\s*(?:"|″|״)/g)].map((match) => match[1] ?? '');
-  const lines = [...text.matchAll(/(?:גדלים|גודל(?:\s*מסך)?|מידות|sizes?)[^\n]{0,120}/gi)].flatMap((match) =>
+  // Inch marks and explicit "גדלים" / "גודל מסך" only — not "מידות" (physical cm), which invents fake sizes.
+  const marked = [...text.matchAll(/(\d{2,3})\s*(?:"|″|״)/g)].map((match) => match[1] ?? '');
+  const inchWords = [...text.matchAll(/(\d{2,3})\s*אינץ['׳"]?/g)].map((match) => match[1] ?? '');
+  const lines = [...text.matchAll(/(?:גדלים|גודל\s*מסך|sizes?)[^\n]{0,120}/gi)].flatMap((match) =>
     [...(match[0] ?? '').matchAll(/\b(\d{2,3})\b/g)].map((item) => item[1] ?? ''),
   );
-  return [...new Set([...marked, ...bareInch, ...lines])].filter((size) => {
+  return [...new Set([...marked, ...inchWords, ...lines])].filter((size) => {
     const value = Number(size);
     return value >= 32 && value <= 120;
   });
@@ -2295,32 +2445,6 @@ function sizeToken(value: string): string {
   const size = code?.[1] ?? '';
   const number = Number(size);
   return number >= 32 && number <= 120 ? size : '';
-}
-
-function adaptVariant(source: BriefVariant, from: string, to: string, notes: string): BriefVariant {
-  return {
-    label: `${to}"`,
-    sku: skuForSize(notes, to, retargetCode(source.sku, from, to)),
-    price: priceForSize(notes, to),
-    subcategory: source.subcategory,
-    specs: source.specs.map((spec) => ({
-      ...spec,
-      value: adaptValue(spec.labelHe, spec.value, from, to),
-      valueAr: adaptValue(spec.labelAr, spec.valueAr, from, to),
-    })),
-  };
-}
-
-function adaptValue(label: string, value: string, from: string, to: string): string {
-  if (!value.trim() || !from || from === to) return value;
-  let next = retargetCode(value, from, to);
-  if (/מסך|screen|גודל/i.test(label)) next = next.replace(new RegExp(`(?<!\\d)${from}(?!\\d)`), to);
-  return next;
-}
-
-function retargetCode(value: string, from: string, to: string): string {
-  if (!from || from === to) return value;
-  return value.replace(new RegExp(`(?<!\\d)${from}(?!\\d)`), to);
 }
 
 function skuForSize(notes: string, size: string, fallback: string): string {
