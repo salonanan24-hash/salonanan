@@ -1290,7 +1290,7 @@ async function fillArabic(proposal: Proposal): Promise<Proposal> {
   const jobs: Array<{ text: string; write: (value: string) => void }> = [];
   const queue = (text: string, write: (value: string) => void) => {
     const trimmed = text.trim();
-    if (!hasHebrew(trimmed) || hasArabic(trimmed)) return;
+    if (!trimmed || hasArabic(trimmed) || !hasHebrew(trimmed)) return;
     jobs.push({ text: trimmed, write });
   };
   if (!hasArabic(proposal.nameAr)) queue(proposal.nameHe, (value) => {
@@ -1306,14 +1306,19 @@ async function fillArabic(proposal: Proposal): Promise<Proposal> {
     if (!hasArabic(spec.labelAr)) queue(spec.labelHe, (value) => {
       spec.labelAr = value;
     });
-    if (spec.type === 'text' && !hasArabic(spec.valueAr)) queue(spec.value, (value) => {
-      spec.valueAr = value;
-    });
+    // Translate Hebrew values for text AND mixed feature strings; pure numbers stay as-is.
+    if (!hasArabic(spec.valueAr) && hasHebrew(spec.value)) {
+      queue(spec.value, (value) => {
+        spec.valueAr = value;
+      });
+    } else if (!spec.valueAr.trim() && spec.value.trim() && !hasHebrew(spec.value)) {
+      spec.valueAr = spec.value.trim();
+    }
   }
   if (jobs.length === 0) return proposal;
   const translated = await translateAll(jobs.map((job) => job.text));
   jobs.forEach((job, index) => {
-    const next = translated[index]?.trim();
+    const next = translated[index]?.trim() ?? '';
     if (next && hasArabic(next)) job.write(next.slice(0, 4_000));
   });
   return proposal;
@@ -1722,12 +1727,15 @@ function notesBlocksForSizes(notes: string, variants: ParsedSize[]): { shared: s
     if (!item.size) continue;
     let index = -1;
     if (item.modelCode) {
-      const found = text.search(new RegExp(`\\b${escapeRegExp(item.modelCode)}\\b`, 'i'));
-      if (found >= 0) index = found;
+      // Prefer the last occurrence — catalogs often list all codes once at the top.
+      const re = new RegExp(`\\b${escapeRegExp(item.modelCode)}\\b`, 'ig');
+      let match: RegExpExecArray | null;
+      while ((match = re.exec(text))) index = match.index;
     }
     if (index < 0) {
-      const found = text.search(new RegExp(`(?:^|\\n)\\s*${escapeRegExp(item.size)}\\s*(?:"|″|״|אינץ)`, 'i'));
-      if (found >= 0) index = found;
+      const re = new RegExp(`(?:^|\\n)\\s*${escapeRegExp(item.size)}\\s*(?:"|″|״|אינץ)`, 'ig');
+      let match: RegExpExecArray | null;
+      while ((match = re.exec(text))) index = match.index + (text[match.index] === '\n' ? 1 : 0);
     }
     if (index >= 0 && !markers.some((marker) => marker.size === item.size)) markers.push({ index, size: item.size });
   }
@@ -1756,43 +1764,55 @@ function mergeSpecs(base: Proposal['specs'], extra: Proposal['specs']): Proposal
   return merged;
 }
 
-function specsForSize(
-  item: ParsedSize,
-  shared: Proposal['specs'],
-  blockNotes: string,
-  fallback: Proposal['specs'],
-  copyFallback: boolean,
-): Proposal['specs'] {
-  const local = blockNotes.trim().length >= 40 ? parseNotes(item.modelCode || item.size, blockNotes) : null;
-  const fromBlock = local?.specs ?? [];
-  const hasOwnBody = fromBlock.length >= 2 || blockNotes.trim().length >= 100;
-  // Only copy another size's full spec sheet when this size has no block of its own.
-  const base = hasOwnBody
-    ? mergeSpecs(shared, fromBlock)
-    : copyFallback
-      ? fallback.map((spec) => ({ ...spec }))
-      : shared.map((spec) => ({ ...spec }));
-  const next = base
-    .filter((spec) => {
-      if (hasOwnBody || copyFallback) return true;
-      // Shared-only path: drop size-specific measurements/prose that belong to another size.
-      if (/(רוחב|גובה|עומק|משקל|מידות|ברקוד)/i.test(spec.labelHe)) return false;
-      if (spec.section === 'spec' && spec.value.length > 80) return false;
-      return true;
-    })
-    .map((spec) => {
-      if (isSkuLabel(spec.labelHe) && item.sku) return { ...spec, value: item.sku, valueAr: '' };
-      if (spec.labelHe === 'דגם' && item.modelCode) return { ...spec, value: item.modelCode, valueAr: '' };
-      if (/גודל מסך/.test(spec.labelHe) && item.size) return { ...spec, value: item.size, valueAr: '' };
-      return { ...spec, valueAr: '' };
+function isIdentitySpec(label: string): boolean {
+  return isSkuLabel(label) || label === 'דגם' || /גודל מסך/.test(label);
+}
+
+/** Lightweight row scrape when a size block is too short for full parseNotes. */
+function rowsFromBlock(block: string): Proposal['specs'] {
+  const specs: Proposal['specs'] = [];
+  const lines = block.split('\n').map((line) => line.trim()).filter(Boolean);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? '';
+    const row = splitRow(line) ?? stackedPair(line, lines[index + 1] ?? '');
+    if (!row) continue;
+    if (stackedPair(line, lines[index + 1] ?? '')) index += 1;
+    if (specs.some((spec) => same(spec.labelHe, row.label))) continue;
+    specs.push({
+      fieldId: '',
+      labelHe: row.label,
+      labelAr: '',
+      type: guessType(row.value),
+      section: 'features',
+      value: row.value,
+      valueAr: '',
     });
+  }
+  return specs;
+}
+
+/**
+ * Build specs for one size from THAT size's note block only.
+ * Never clones another size's measurements or prose.
+ */
+function specsForSize(item: ParsedSize, shared: Proposal['specs'], blockNotes: string): Proposal['specs'] {
+  const block = blockNotes.trim();
+  const parsedLocal = block.length >= 40 ? parseNotes(item.modelCode || item.size, block) : null;
+  const fromBlock = (parsedLocal?.specs.length ? parsedLocal.specs : rowsFromBlock(block)).filter(
+    (spec) => !isIdentitySpec(spec.labelHe),
+  );
+  const next = mergeSpecs(
+    shared.filter((spec) => !isIdentitySpec(spec.labelHe)),
+    fromBlock,
+  ).map((spec) => ({ ...spec, valueAr: '', labelAr: spec.labelAr || '' }));
+
   const ensure = (labelHe: string, value: string, type: 'text' | 'number' = 'text') => {
     if (!value) return;
     const index = next.findIndex(
       (spec) => same(spec.labelHe, labelHe) || (labelHe === 'מק"ט' && isSkuLabel(spec.labelHe)),
     );
     if (index >= 0) {
-      next[index] = { ...next[index]!, value, valueAr: '' };
+      next[index] = { ...next[index]!, value, valueAr: '', labelAr: next[index]!.labelAr || '' };
       return;
     }
     next.unshift({
@@ -1999,25 +2019,19 @@ function subcategoryForSize(size: string, written: string, catalog: Catalog, sou
 function parsedToVariants(parsed: ParsedNotes, catalog: Catalog, notes = ''): BriefVariant[] {
   const sizes = parsed.variants.length > 0 ? parsed.variants : [{ size: '', modelCode: '', sku: '' }];
   const source = sizes[0] ?? { size: '', modelCode: '', sku: '' };
-  const sourceSize = source.size || '';
   const sized = sizes.filter((item) => item.size);
+  const multi = sized.length >= 2;
   const { shared, bySize } = notesBlocksForSizes(notes, sized);
   const sharedParsed = shared.length >= 40 ? parseNotes(parsed.nameHe || source.modelCode || '', shared) : null;
-  // With multiple size blocks, never treat the whole-document merge as "shared" — that cloned size #1 onto the rest.
+  // Multi-size: shared preamble only. Never reuse the whole-document parse (that cloned size #1).
   const sharedSpecs = (
-    sharedParsed?.specs.length
-      ? sharedParsed.specs
-      : bySize.size >= 2
-        ? []
-        : parsed.specs
-  ).filter((spec) => !isSkuLabel(spec.labelHe) && spec.labelHe !== 'דגם' && !/גודל מסך/.test(spec.labelHe));
-  const sourceBlock = (source.size && bySize.get(source.size)) || '';
-  const sourceSpecs = specsForSize(source, sharedSpecs, sourceBlock, parsed.specs, true);
+    multi ? (sharedParsed?.specs ?? []) : sharedParsed?.specs.length ? sharedParsed.specs : parsed.specs
+  ).filter((spec) => !isIdentitySpec(spec.labelHe));
 
   return sizes.map((item) => {
-    const block = (item.size && bySize.get(item.size)) || '';
-    const isSource = item.size === sourceSize;
-    const specs = specsForSize(item, sharedSpecs, block, sourceSpecs, isSource && bySize.size < 2).map((spec) => {
+    const block = (item.size && bySize.get(item.size)) || (multi ? '' : notes);
+    const isSource = item.size === source.size;
+    const specs = specsForSize(item, sharedSpecs, block).map((spec) => {
       if (/ברקוד|barcode/i.test(spec.labelHe) && !isSource) return { ...spec, value: '', valueAr: '' };
       return spec;
     });
@@ -2037,7 +2051,6 @@ function parsedToVariants(parsed: ParsedNotes, catalog: Catalog, notes = ''): Br
 
 async function applyParsed(input: z.infer<typeof inputSchema>, parsed: ParsedNotes, catalog: Catalog): Promise<ProductIntake> {
   const notes = `${input.model}\n${input.notes}`;
-  // Stick to model-code sizes only — do not invent extras via fitSizes/listedSizes.
   parsed = { ...parsed, variants: collectVariantSizes(input.model, notes, parsed.variants) };
   const fitted = parsedToVariants(parsed, catalog, notes);
   const proposal: Proposal = {
@@ -2050,17 +2063,10 @@ async function applyParsed(input: z.infer<typeof inputSchema>, parsed: ParsedNot
     price: fitted[0]?.price ?? '',
     color: fitted[0]?.label ?? '',
   };
-  await fillArabic(proposal).catch(() => proposal);
-  const sourceSpecs = fitted[0]?.specs ?? [];
-  for (const variant of fitted.slice(1)) {
-    variant.specs.forEach((spec, index) => {
-      const sourceSpec = sourceSpecs[index];
-      if (sourceSpec && sourceSpec.value === spec.value) spec.valueAr = sourceSpec.valueAr;
-    });
-  }
-  const changed = fitted.slice(1).flatMap((variant) => variant.specs.filter((spec) => !spec.valueAr && hasHebrew(spec.value)));
-  if (changed.length > 0) {
-    await fillArabic({ ...proposal, specs: changed.slice(0, 40) }).catch(() => proposal);
+  // Translate product shell + every variant's own specs (do not swallow failures into empty Arabic).
+  await fillArabic(proposal);
+  for (const variant of fitted) {
+    await fillArabic({ ...proposal, specs: variant.specs, subcategory: variant.subcategory });
   }
   const created = { brand: null as string | null, category: null as string | null, subcategory: null as string | null, fields: [] as string[] };
   const slugs = new Set([...catalog.brands.map((brand) => brand.slug), ...catalog.categories.map((category) => category.slug)]);
@@ -2118,10 +2124,24 @@ function briefPrice(price: string, label: string): string {
 
 async function intakeBrief(input: z.infer<typeof inputSchema>): Promise<ProductIntake> {
   const catalog = await readCatalog();
+  const notes = `${input.model}\n${input.notes}`;
   const parsed = parseNotes(input.model, input.notes);
+  const coded = collectVariantSizes(input.model, notes, parsed.variants);
+  // Multiple written sizes → always use per-block parsing (never the AI overlay that cloned size #1).
+  if (coded.length >= 2) {
+    return applyParsed(
+      input,
+      {
+        ...parsed,
+        variants: coded,
+        brandName: parsed.brandName || brandFromNotes(notes),
+        categoryName: parsed.categoryName || inferCategory(notes),
+      },
+      catalog,
+    );
+  }
   if (canApplyParsed(parsed)) return applyParsed(input, parsed, catalog);
   const brief = await askBrief(input, catalog);
-  const notes = `${input.model}\n${input.notes}`;
   if (!brief.brand.name.trim() || !supportedFact(brief.brand.name, notes)) {
     const name = brandFromNotes(notes);
     brief.brand = name ? { id: '', name, slug: '' } : { id: '', name: '', slug: '' };
@@ -2135,18 +2155,15 @@ async function intakeBrief(input: z.infer<typeof inputSchema>): Promise<ProductI
     ...variant,
     price: supportedFact(variant.price, notes) ? variant.price : '',
     subcategory: supportedFact(variant.subcategory.nameHe, notes) ? variant.subcategory : emptySubcategory,
-    specs: overlayParsedSpecs(
-      variant.specs
-        .map((spec) =>
-          spec.section === 'spec' ? { ...spec, value: completeFromSource(spec.value, notes) || spec.value } : spec,
-        )
-        .filter((spec) => {
-          if (!supportedFact(spec.value, notes)) return false;
-          if (spec.section === 'spec' && startsMidSentence(spec.value)) return false;
-          return true;
-        }),
-      parsed.specs,
-    ),
+    specs: variant.specs
+      .map((spec) =>
+        spec.section === 'spec' ? { ...spec, value: completeFromSource(spec.value, notes) || spec.value } : spec,
+      )
+      .filter((spec) => {
+        if (!supportedFact(spec.value, notes)) return false;
+        if (spec.section === 'spec' && startsMidSentence(spec.value)) return false;
+        return true;
+      }),
   }));
   if (!brief.brand.name.trim() && parsed.brandName) brief.brand = { id: '', name: parsed.brandName, slug: '' };
   if (!brief.category.nameHe.trim() && parsed.categoryName) {
@@ -2158,36 +2175,23 @@ async function intakeBrief(input: z.infer<typeof inputSchema>): Promise<ProductI
     brand: brief.brand,
     category: brief.category,
     subcategory: fitted[0]?.subcategory ?? emptySubcategory,
-    specs: fitted.flatMap((variant) => variant.specs),
+    specs: fitted[0]?.specs ?? [],
     price: fitted[0]?.price ?? '',
     color: fitted[0]?.label ?? '',
   };
   await fillArabic(proposal);
+  for (const variant of fitted) {
+    await fillArabic({ ...proposal, specs: variant.specs, subcategory: variant.subcategory });
+  }
   const created = { brand: null as string | null, category: null as string | null, subcategory: null as string | null, fields: [] as string[] };
   const slugs = new Set([...catalog.brands.map((brand) => brand.slug), ...catalog.categories.map((category) => category.slug)]);
   const brandId = await ensureBrand(proposal, catalog, slugs, created);
   const category = await ensureCategory(proposal, catalog, slugs, created);
   const fields: Field[] = [];
   await applySpecParagraphs(input.notes, fields, fitted);
-  const parsedSpecBlocks = parsed.specs.filter((spec) => spec.section === 'spec' && isFullParagraph(spec.value));
-  if (parsedSpecBlocks.length > 0) {
-    for (const variant of fitted) {
-      for (const block of parsedSpecBlocks) {
-        if (variant.specs.some((spec) => spec.section === 'spec' && same(spec.labelHe, block.labelHe) && spec.value.length >= block.value.length)) {
-          continue;
-        }
-        variant.specs = [
-          {
-            ...block,
-            value: completeFromSource(block.value, input.notes) || block.value,
-          },
-          ...variant.specs.filter((spec) => !(spec.section === 'spec' && same(spec.labelHe, block.labelHe))),
-        ];
-      }
-    }
+  for (const variant of fitted) {
+    await fillArabic({ ...proposal, specs: variant.specs, subcategory: variant.subcategory });
   }
-  const paragraphs = fitted.flatMap((variant) => variant.specs.filter((spec) => spec.section === 'spec' && hasHebrew(spec.value) && !hasArabic(spec.valueAr)));
-  if (paragraphs.length > 0) await fillArabic({ ...proposal, specs: paragraphs.slice(0, 24) }).catch(() => proposal);
   const variants = [];
   for (const variant of fitted) {
     const subcategoryId = await ensureSubcategory({ ...proposal, subcategory: variant.subcategory }, category, created);
@@ -2327,24 +2331,6 @@ function canApplyParsed(parsed: ParsedNotes): boolean {
   return parsed.specs.length >= 4 || parsed.variants.length >= 2;
 }
 
-function overlayParsedSpecs(current: Proposal['specs'], parsed: Proposal['specs']): Proposal['specs'] {
-  const merged = [...current];
-  for (const item of parsed) {
-    if (!item.value.trim()) continue;
-    const index = merged.findIndex(
-      (spec) => same(spec.labelHe, item.labelHe) || (item.labelAr && same(spec.labelAr, item.labelAr)),
-    );
-    if (index >= 0) {
-      const previous = merged[index];
-      if (!previous) continue;
-      if (item.section === 'features' || item.value.length >= previous.value.length) merged[index] = { ...item };
-      continue;
-    }
-    merged.push(item);
-  }
-  return placeBriefSpecs(scrubSpecs(merged).filter((spec) => !isStoreNoise(spec.labelHe) && !isStoreNoise(spec.value)));
-}
-
 function labeledValue(notes: string, label: RegExp): string {
   const lines = notes.split('\n').map((line) => line.trim()).filter(Boolean);
   const bare = label.source.replace(/^\^/, '').replace(/\$$/, '');
@@ -2408,9 +2394,7 @@ function fitSizes(model: string, notes: string, variants: BriefVariant[]): Brief
     if (size) known.set(size, variant);
   }
   const blocks = notesBlocksForSizes(notes, coded);
-  const sharedOnly = source.specs.filter(
-    (spec) => !isSkuLabel(spec.labelHe) && spec.labelHe !== 'דגם' && !/גודל מסך/.test(spec.labelHe),
-  );
+  const sharedOnly = source.specs.filter((spec) => !isIdentitySpec(spec.labelHe));
   for (const item of coded) {
     if (known.has(item.size)) continue;
     const block = blocks.bySize.get(item.size) || '';
@@ -2419,7 +2403,7 @@ function fitSizes(model: string, notes: string, variants: BriefVariant[]): Brief
       sku: item.sku || item.modelCode,
       price: priceForSize(block || notes, item.size),
       subcategory: source.subcategory,
-      specs: specsForSize(item, sharedOnly, block, source.specs, false),
+      specs: specsForSize(item, sharedOnly, block),
     });
   }
   return sizes.map((size) => known.get(size)).filter((variant): variant is BriefVariant => Boolean(variant));
