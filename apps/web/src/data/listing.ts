@@ -256,6 +256,51 @@ function isSmartTv(product: DemoProduct, selectedSub: string): boolean {
   return /טלוויזיה חכמה[\s\S]{0,24}(yes|כן|true|نعم)/i.test(optionText(product, selectedSub));
 }
 
+const panelOptions: FilterOption[] = [
+  { value: 'oled', label: text('OLED', 'OLED') },
+  { value: 'qled', label: text('QLED', 'QLED') },
+  { value: 'mini-led', label: text('Mini-LED', 'Mini-LED') },
+  { value: 'nanocell', label: text('NanoCell', 'NanoCell') },
+  { value: 'led', label: text('LED', 'LED') },
+  { value: 'lcd', label: text('LCD', 'LCD') },
+];
+
+function televisionBlob(product: DemoProduct, selectedSub: string): string {
+  return [
+    product.name.he,
+    product.name.ar,
+    product.highlight.he,
+    product.highlight.ar,
+    product.slug,
+    optionText(product, selectedSub),
+  ].join('\n');
+}
+
+function panelKinds(product: DemoProduct, selectedSub: string): string[] {
+  const blob = televisionBlob(product, selectedSub);
+  const found: string[] = [];
+  if (/\boled\b|או.?לד/i.test(blob)) found.push('oled');
+  if (/\bqled\b|neo\s*qled|קיו.?לד/i.test(blob)) found.push('qled');
+  if (/mini[-\s]?led|מיני[-\s]?לד/i.test(blob)) found.push('mini-led');
+  if (/nanocell|ננו.?סל/i.test(blob)) found.push('nanocell');
+  if (/\blcd\b|אל.?סי.?די/i.test(blob)) found.push('lcd');
+  // Bare LED only when no more-specific panel tech was found in the same product.
+  if (
+    found.length === 0 &&
+    /(?:^|[^a-zא-ת])led(?:[^a-zא-ת]|$)|(?:^|[^א-ת])לד(?:[^א-ת]|$)/i.test(blob)
+  ) {
+    found.push('led');
+  } else if (
+    !found.includes('oled') &&
+    !found.includes('qled') &&
+    !found.includes('mini-led') &&
+    /(?:סוג תצוגה|טכנולוגי(?:ה|ת מסך)|panel|display)[^\n]{0,40}\bled\b/i.test(blob)
+  ) {
+    found.push('led');
+  }
+  return found;
+}
+
 function televisionFilters(products: readonly DemoProduct[], selectedSub: string): ListingFilter[] {
   const sizes = [...new Set(products.flatMap((product) => screenSizes(product, selectedSub)))].sort(
     (left, right) => Number(right) - Number(left),
@@ -271,6 +316,14 @@ function televisionFilters(products: readonly DemoProduct[], selectedSub: string
       ),
     );
   }
+  filters.push(
+    multi(
+      'panel',
+      text('סוג תצוגה', 'نوع الشاشة'),
+      panelOptions,
+      (product, selected) => panelKinds(product, selectedSub).some((kind) => selected.includes(kind)),
+    ),
+  );
   if (products.some((product) => is4k(product, selectedSub))) {
     filters.push(
       multi(
@@ -301,47 +354,105 @@ const televisionLanding: CategoryLanding = {
   filters: (products) => televisionFilters(products, ''),
 };
 
+function laundryBlob(product: DemoProduct): string {
+  return [
+    product.name.he,
+    product.name.ar,
+    product.highlight.he,
+    product.highlight.ar,
+    optionText(product, ''),
+  ].join('\n');
+}
+
+function capacityKgValues(product: DemoProduct): string[] {
+  const values = new Set<string>();
+  if (product.attributes.capacityKg !== undefined) values.add(String(product.attributes.capacityKg));
+  const blob = laundryBlob(product);
+  for (const match of blob.matchAll(/(\d{1,2}(?:\.\d)?)\s*(?:ק["״']?ג|kg|كغم|كيلو)/gi)) {
+    const amount = Number(match[1]);
+    if (amount >= 4 && amount <= 25) values.add(String(amount));
+  }
+  for (const match of blob.matchAll(/(?:קיبולת|سعة)[^\d]{0,16}(\d{1,2}(?:\.\d)?)/gi)) {
+    const amount = Number(match[1]);
+    if (amount >= 4 && amount <= 25) values.add(String(amount));
+  }
+  return [...values];
+}
+
+function spinRpmValues(product: DemoProduct): string[] {
+  const values = new Set<string>();
+  if (product.attributes.spinRpm !== undefined) values.add(String(product.attributes.spinRpm));
+  const blob = laundryBlob(product);
+  for (const match of blob.matchAll(/(\d{3,4})\s*(?:סל["״']?ד|rpm)/gi)) {
+    const amount = Number(match[1]);
+    if (amount >= 400 && amount <= 2000) values.add(String(amount));
+  }
+  return [...values];
+}
+
+function loadTypeValue(product: DemoProduct): string | undefined {
+  if (product.attributes.loadType) return product.attributes.loadType;
+  const blob = laundryBlob(product);
+  if (/פתיחה קדמית|טעינה קדמית|تعبئة أمامية|front\s*load/i.test(blob)) return 'front';
+  if (/פתיחה עליונה|טעינה עליונה|تعبئة علوية|top\s*load/i.test(blob)) return 'top';
+  return undefined;
+}
+
+function washerFilters(products: readonly DemoProduct[]): ListingFilter[] {
+  const capacities = [...new Set(products.flatMap((product) => capacityKgValues(product)))]
+    .sort((left, right) => Number(right) - Number(left));
+  const spins = [...new Set(products.flatMap((product) => spinRpmValues(product)))]
+    .sort((left, right) => Number(right) - Number(left));
+  const loads = [
+    { value: 'front', label: text('קדמית', 'أمامية') },
+    { value: 'top', label: text('עליונה', 'علوية') },
+  ].filter((option) => products.some((product) => loadTypeValue(product) === option.value));
+
+  const filters: ListingFilter[] = [brandFilter(products)];
+  if (capacities.length > 0) {
+    filters.push(
+      multi(
+        'capacity',
+        text('קיבולת', 'السعة'),
+        capacities.map((kg) => ({ value: kg, label: text(`${kg} ק״ג`, `${kg} كغم`) })),
+        (product, selected) => capacityKgValues(product).some((kg) => selected.includes(kg)),
+      ),
+    );
+  }
+  if (spins.length > 0) {
+    filters.push(
+      multi(
+        'spin',
+        text('סל״ד', 'سرعة العصر'),
+        spins.map((rpm) => ({
+          value: rpm,
+          label: text(Number(rpm).toLocaleString('he-IL'), rpm),
+        })),
+        (product, selected) => spinRpmValues(product).some((rpm) => selected.includes(rpm)),
+      ),
+    );
+  }
+  if (loads.length > 0) {
+    filters.push(
+      multi(
+        'load',
+        text('סוג פתיחה', 'نوع التعبئة'),
+        loads,
+        (product, selected) => {
+          const load = loadTypeValue(product);
+          return Boolean(load && selected.includes(load));
+        },
+      ),
+    );
+  }
+  filters.push(priceFilter);
+  return filters;
+}
+
 const washerLanding: CategoryLanding = {
   subcategories: [],
-  features: [
-    { id: '9', name: text('9 ק״ג', '9 كغم'), query: 'capacity=9' },
-    { id: 'front', name: text('פתיחה קדמית', 'تعبئة أمامية'), query: 'load=front' },
-  ],
-  guide: {
-    title: text('לפני הסינון', 'قبل التصفية'),
-    body: text(
-      'קיבולת, פתיחה וסל״ד מופיעים רק כפי שהם רשומים בכרטיס ההדגמה. דירוג אנרגיה לא נוסף כי הוא לא רשום.',
-      'السعة ونوع التعبئة وسرعة العصر تظهر فقط كما هي مكتوبة في بطاقة العرض. لم يُضف تصنيف الطاقة لأنه غير مكتوب.',
-    ),
-  },
-  filters: (products) => [
-    brandFilter(products),
-    multi(
-      'capacity',
-      text('קיבולת', 'السعة'),
-      [{ value: '9', label: text('9 ק״ג', '9 كغم') }],
-      attributeEquals((product) =>
-        product.attributes.capacityKg === undefined
-          ? undefined
-          : String(product.attributes.capacityKg),
-      ),
-    ),
-    multi(
-      'spin',
-      text('סל״ד', 'سرعة العصر'),
-      [{ value: '1400', label: text('1,400', '1400') }],
-      attributeEquals((product) =>
-        product.attributes.spinRpm === undefined ? undefined : String(product.attributes.spinRpm),
-      ),
-    ),
-    multi(
-      'load',
-      text('סוג פתיחה', 'نوع التعبئة'),
-      [{ value: 'front', label: text('קדמית', 'أمامية') }],
-      attributeEquals((product) => product.attributes.loadType),
-    ),
-    priceFilter,
-  ],
+  features: [],
+  filters: (products) => washerFilters(products),
 };
 
 const landings: Record<string, CategoryLanding> = {

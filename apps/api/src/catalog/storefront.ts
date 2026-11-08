@@ -39,7 +39,31 @@ function numberSpec(specs: Record<string, string>, key: string): number | undefi
   return Number.isFinite(value) ? value : undefined;
 }
 
-function attributesFrom(specs: Record<string, string>): StoreAttributes {
+function labeledSpec(
+  specs: Record<string, string>,
+  fields: CatalogPayload['products'][number]['fields'],
+  label: RegExp,
+): string | undefined {
+  for (const field of fields) {
+    if (!label.test(field.label.he) && !label.test(field.label.ar)) continue;
+    const value = specs[field.id]?.trim();
+    if (value) return value;
+  }
+  return undefined;
+}
+
+function firstNumber(raw: string | undefined, min: number, max: number): number | undefined {
+  if (!raw) return undefined;
+  const match = raw.replace(/,/g, '').match(/(\d+(?:\.\d+)?)/);
+  if (!match?.[1]) return undefined;
+  const value = Number(match[1]);
+  return Number.isFinite(value) && value >= min && value <= max ? value : undefined;
+}
+
+function attributesFrom(
+  specs: Record<string, string>,
+  fields: CatalogPayload['products'][number]['fields'] = [],
+): StoreAttributes {
   const attributes: StoreAttributes = {};
   const refrigeratorType = specValue(specs, 'refrigeratorType');
   if (refrigeratorType && refrigeratorTypes.has(refrigeratorType)) attributes.refrigeratorType = refrigeratorType;
@@ -54,11 +78,22 @@ function attributesFrom(specs: Record<string, string>): StoreAttributes {
   const smartTv = specValue(specs, 'smartTv');
   if (smartTv === 'yes' || smartTv === 'true') attributes.smartTv = true;
   if (smartTv === 'no' || smartTv === 'false') attributes.smartTv = false;
-  const capacityKg = numberSpec(specs, 'capacityKg');
+  const capacityKg =
+    numberSpec(specs, 'capacityKg') ??
+    firstNumber(labeledSpec(specs, fields, /קיבולת|capacity|سعة/), 4, 25) ??
+    firstNumber(
+      Object.values(specs).find((value) => /\d+\s*(?:ק["״']?ג|kg|كغم)/i.test(value)),
+      4,
+      25,
+    );
   if (capacityKg !== undefined) attributes.capacityKg = capacityKg;
-  const loadType = specValue(specs, 'loadType');
-  if (loadType && loadTypes.has(loadType)) attributes.loadType = loadType;
-  const spinRpm = numberSpec(specs, 'spinRpm');
+  const loadRaw = specValue(specs, 'loadType') || labeledSpec(specs, fields, /פתיחה|טעינה|load/i) || '';
+  if (loadTypes.has(loadRaw)) attributes.loadType = loadRaw;
+  else if (/קדמית|أمامية|front/i.test(loadRaw)) attributes.loadType = 'front';
+  else if (/עליונה|علوية|top/i.test(loadRaw)) attributes.loadType = 'top';
+  const spinRpm =
+    numberSpec(specs, 'spinRpm') ??
+    firstNumber(labeledSpec(specs, fields, /סל.?ד|spin|rpm|عصر/), 400, 2000);
   if (spinRpm !== undefined) attributes.spinRpm = spinRpm;
   return attributes;
 }
@@ -214,7 +249,7 @@ export function toStorefront(catalog: CatalogPayload) {
           badges: [],
           developmentFixture: false,
           images: imagesFrom(product),
-          attributes: attributesFrom(leadSpecs.specs),
+          attributes: attributesFrom(leadSpecs.specs, product.fields),
           details: lead?.details ?? detailsFrom(product.specs, product.specsAr, product.fields),
           options,
         },
