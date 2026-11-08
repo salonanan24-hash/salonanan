@@ -1,7 +1,12 @@
 import { Search } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { activeCatalog, categoryBySlug, searchProducts } from '@/data/catalog';
+import {
+  activeCatalog,
+  categoryBySlug,
+  matchingSearchOption,
+  searchProducts,
+} from '@/data/catalog';
 import { useI18n } from '@/i18n';
 
 type Suggestion =
@@ -175,13 +180,20 @@ function buildSuggestions(
 
   const products = searchProducts(needle)
     .slice(0, 5)
-    .map((product) => ({
-      kind: 'product' as const,
-      id: product.id,
-      href: `/product/${product.slug}`,
-      label: product.name[locale],
-      meta: categoryBySlug(product.categorySlug)?.name[locale] ?? messages.search.products,
-    }));
+    .map((product) => {
+      const option = matchingSearchOption(product, needle);
+      const href =
+        option?.sku ?
+          `/product/${product.slug}/${encodeURIComponent(option.sku)}`
+        : `/product/${product.slug}`;
+      return {
+        kind: 'product' as const,
+        id: product.id,
+        href,
+        label: product.name[locale],
+        meta: categoryBySlug(product.categorySlug)?.name[locale] ?? messages.search.products,
+      };
+    });
 
   return [...categories, ...products];
 }

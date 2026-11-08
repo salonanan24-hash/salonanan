@@ -693,26 +693,65 @@ export function categoryImage(slug: string): string {
   );
 }
 
+function compactSearch(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9\u0590-\u05ff\u0600-\u06ff]+/g, '');
+}
+
+function detailSearchText(details: ProductDetails): string[] {
+  return [...details.spec, ...details.features, ...details.info].flatMap((row) => [
+    row.label.he,
+    row.label.ar,
+    row.value.he,
+    row.value.ar,
+  ]);
+}
+
+function matchesSearch(haystack: string, needle: string, needleCompact: string): boolean {
+  const lowered = haystack.toLowerCase();
+  if (lowered.includes(needle)) return true;
+  // Model/SKU codes often differ by spaces or dashes — compare alphanumerics only.
+  return needleCompact.length >= 3 && compactSearch(haystack).includes(needleCompact);
+}
+
+export function productSearchBlob(product: DemoProduct): string {
+  const brand = brandById(product.brandId)?.name ?? '';
+  const category = categoryBySlug(product.categorySlug);
+  const options = productOptions(product);
+  return [
+    product.name.he,
+    product.name.ar,
+    product.highlight.he,
+    product.highlight.ar,
+    brand,
+    category?.name.he ?? '',
+    category?.name.ar ?? '',
+    product.slug,
+    ...detailSearchText(product.details),
+    ...options.flatMap((option) => [
+      option.sku,
+      option.label,
+      optionModel(option),
+      ...detailSearchText(option.details),
+    ]),
+  ].join('\n');
+}
+
+export function matchingSearchOption(product: DemoProduct, query: string): StoreOption | undefined {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return undefined;
+  const needleCompact = compactSearch(needle);
+  return productOptions(product).find((option) => {
+    const haystack = [option.sku, option.label, optionModel(option), ...detailSearchText(option.details)].join('\n');
+    return matchesSearch(haystack, needle, needleCompact);
+  });
+}
+
 export function searchProducts(query: string): DemoProduct[] {
   const needle = query.trim().toLowerCase();
   if (!needle) return [];
+  const needleCompact = compactSearch(needle);
 
-  return liveCatalog.products.filter((product) => {
-    const brand = brandById(product.brandId)?.name ?? '';
-    const category = categoryBySlug(product.categorySlug);
-    const haystack = [
-      product.name.he,
-      product.name.ar,
-      product.highlight.he,
-      product.highlight.ar,
-      brand,
-      category?.name.he ?? '',
-      category?.name.ar ?? '',
-      product.slug,
-    ]
-      .join(' ')
-      .toLowerCase();
-
-    return haystack.includes(needle);
-  });
+  return liveCatalog.products.filter((product) =>
+    matchesSearch(productSearchBlob(product), needle, needleCompact),
+  );
 }

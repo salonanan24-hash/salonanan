@@ -22,7 +22,7 @@ export const he = {
   },
   search: {
     label: 'חיפוש באתר',
-    placeholder: 'חיפוש מוצר או קטגוריה',
+    placeholder: 'חיפוש מוצר, דגם או קטגוריה',
     submit: 'חיפוש',
     results: 'תוצאות עבור „{query}”',
     count: '{count} מוצרים',

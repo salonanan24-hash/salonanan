@@ -24,7 +24,7 @@ export const ar: typeof he = {
   },
   search: {
     label: 'البحث في الموقع',
-    placeholder: 'ابحث عن منتج أو فئة',
+    placeholder: 'ابحث عن منتج أو موديل أو فئة',
     submit: 'بحث',
     results: 'نتائج „{query}”',
     count: '{count} منتجات',
