@@ -14,17 +14,23 @@ import {
   readCatalog,
 } from './catalog.js';
 
-const inputSchema = z.object({
-  model: z.string().trim().min(1).max(120),
-  url: z
-    .string()
-    .trim()
-    .max(2_000)
-    .default('')
-    .refine((value) => value.length === 0 || z.string().url().safeParse(value).success),
-  notes: z.string().trim().max(20_000).default(''),
-  images: z.array(z.string().trim().max(1_500_000)).max(4).default([]),
-});
+const inputSchema = z
+  .object({
+    model: z.string().trim().max(120).default(''),
+    url: z
+      .string()
+      .trim()
+      .max(2_000)
+      .default('')
+      .refine((value) => value.length === 0 || z.string().url().safeParse(value).success),
+    notes: z.string().trim().max(20_000).default(''),
+    images: z.array(z.string().trim().max(1_500_000)).max(4).default([]),
+  })
+  .superRefine((value, context) => {
+    if (!value.model && !value.notes && !value.url) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: 'Model or notes required', path: ['notes'] });
+    }
+  });
 
 const proposalSchema = z.object({
   nameHe: z.string().trim().max(200).default(''),
@@ -116,7 +122,7 @@ export async function intakeProduct(body: unknown): Promise<ProductIntake> {
   const page = parts.join('\n\n').slice(0, 32_000);
   const catalog = await readCatalog();
   const proposal = await askModel(input.model, input.url, page, catalog);
-  return applyProposal(input.model, proposal, catalog);
+  return applyProposal(input.model, proposal, catalog, `${input.model}\n${input.notes}\n${page}`);
 }
 
 async function readQuiet(url: string): Promise<string> {
@@ -498,6 +504,54 @@ function applyTypedFacts(proposal: Proposal, model: string, _catalog: Catalog): 
 function modelCode(value: string): string {
   const tokens = value.match(/[A-Za-z]{1,8}\d[A-Za-z0-9-]{2,}/g) ?? [];
   return tokens.sort((left, right) => right.length - left.length)[0] ?? value.trim();
+}
+
+/** Prefer a real model code; otherwise keep the admin-typed model text. */
+function preferredModelValue(...candidates: string[]): string {
+  for (const candidate of candidates) {
+    const trimmed = candidate.trim();
+    if (!trimmed) continue;
+    const code = modelCode(trimmed);
+    if (/[A-Za-z]{1,8}\d[A-Za-z0-9-]{2,}/.test(code) && code !== trimmed) return code.toUpperCase();
+    if (/[A-Za-z]{1,8}\d[A-Za-z0-9-]{2,}/.test(code)) return code.toUpperCase();
+  }
+  for (const candidate of candidates) {
+    const trimmed = candidate.trim();
+    if (trimmed.length >= 2 && trimmed.length <= 80 && !/^https?:/i.test(trimmed)) return trimmed;
+  }
+  return '';
+}
+
+/** Always keep דגם under תכונות ומאפיינים when a model value exists. */
+function ensureModelFeature(specs: Proposal['specs'], ...candidates: string[]): Proposal['specs'] {
+  const existing = specs.find((spec) => spec.labelHe === 'דגם' || /^דגם\b/.test(spec.labelHe));
+  const value = preferredModelValue(...candidates, existing?.value ?? '');
+  if (!value) return specs.map((spec) => (spec.labelHe === 'דגם' ? { ...spec, section: 'features' as const } : spec));
+  if (existing) {
+    return specs.map((spec) =>
+      spec === existing || spec.labelHe === 'דגם'
+        ? {
+            ...spec,
+            labelHe: 'דגם',
+            section: 'features' as const,
+            type: 'text' as const,
+            value: spec.value.trim() || value,
+          }
+        : spec,
+    );
+  }
+  return [
+    {
+      fieldId: '',
+      labelHe: 'דגם',
+      labelAr: 'الموديل',
+      type: 'text' as const,
+      section: 'features' as const,
+      value,
+      valueAr: '',
+    },
+    ...specs,
+  ];
 }
 
 function mentionsModel(text: string, model: string): boolean {
@@ -1592,8 +1646,13 @@ function parseNotes(model: string, notes: string): ParsedNotes {
       index += 1;
       continue;
     }
-    const row = splitRow(line);
+    const row = labeledRow(line);
     if (row) {
+      // Category/brand must always be captured, even under a section heading.
+      if (/^קטגורי/.test(row.label) || /תת.?קטגור/.test(row.label) || row.label === 'מותג') {
+        remember(row.label, row.value, 'features');
+        continue;
+      }
       if (takeMeasure(row.label, row.value, heading || context, measureLines, measureFields)) {
         if (heading) bullets.push(`${row.label}: ${row.value}`);
         continue;
@@ -1601,6 +1660,7 @@ function parseNotes(model: string, notes: string): ParsedNotes {
       if (heading) {
         bullets.push(`${row.label}: ${row.value}`);
         if (/דירוג אנרגטי/.test(row.label)) remember('דירוג אנרגטי', row.value, 'features');
+        else remember(row.label, row.value, 'features');
         continue;
       }
       if (heading && paragraph.length === 0 && bullets.length === 0) context = heading;
@@ -1617,8 +1677,12 @@ function parseNotes(model: string, notes: string): ParsedNotes {
       continue;
     }
     if (
-      isTitle(line.replace(/:\s*$/, '')) &&
-      (isLongLine(upcoming) || isSentence(upcoming) || isBulletLine(upcoming) || Boolean(splitRow(upcoming)) || (upcoming.length > 0 && upcoming.length <= 80))
+      isSectionHeading(line.replace(/:\s*$/, '')) &&
+      (isLongLine(upcoming) ||
+        isSentence(upcoming) ||
+        isBulletLine(upcoming) ||
+        Boolean(labeledRow(upcoming)) ||
+        (isShortLine(upcoming) && !isSentence(upcoming) && upcoming.length <= 48))
     ) {
       flush();
       heading = line.replace(/:\s*$/, '').trim();
@@ -1659,19 +1723,14 @@ function parseNotes(model: string, notes: string): ParsedNotes {
   }
   const sourceSize = sizeToken(nameHe) || sizeToken(model) || variants[0]?.size || '';
   const source = variants.find((item) => item.size === sourceSize) ?? variants[0];
-  if (source?.modelCode && !specs.some((spec) => spec.labelHe === 'דגם')) remember('דגם', source.modelCode, 'features');
+  const modelLabel = preferredModelValue(model, source?.modelCode ?? '');
+  if (modelLabel) remember('דגם', modelLabel, 'features');
   if (source?.sku && !specs.some((spec) => isSkuLabel(spec.labelHe))) remember('מק"ט', source.sku, 'features');
   if (sourceSize && !specs.some((spec) => /גודל מסך/.test(spec.labelHe))) remember('גודל מסך', sourceSize, 'features');
   if (!brandName) {
-    const brand =
-      nameHe.match(/\b(Samsung|LG|Sony|Philips|TCL|Hisense|Xiaomi|Google)\b/i)?.[1] ??
-      text.match(/\b(Samsung|LG|Sony|Philips|TCL|Hisense|Xiaomi)\b/i)?.[1] ??
-      '';
-    brandName = brand;
+    brandName = brandFromNotes(`${nameHe}\n${text}`);
   }
-  if (!categoryName) {
-    categoryName = inferCategory(`${nameHe}\n${text.slice(0, 800)}`);
-  }
+  categoryName = refineCategory(categoryName, `${nameHe}\n${text}`);
   if (/טלוויזיה חכמה/.test(`${nameHe}\n${text.slice(0, 500)}`) && !specs.some((spec) => spec.labelHe === 'טלוויזיה חכמה')) {
     remember('טלוויזיה חכמה', 'כן', 'features');
   }
@@ -1886,6 +1945,49 @@ function splitRow(line: string): { label: string; value: string } | null {
   return { label, value: match[2].trim() };
 }
 
+function looksLikeSpecValue(text: string): boolean {
+  return /\d/.test(text) || /(?:\bW\b|MHz|V\b|ליטר|ק["״]?ג|ס["״]?מ)/i.test(text);
+}
+
+function looksLikeSpecLabel(text: string): boolean {
+  return (
+    text.length >= 2 &&
+    text.length <= 40 &&
+    text.split(/\s+/).length <= 5 &&
+    !looksLikeSpecValue(text) &&
+    /[א-תA-Za-z]/.test(text)
+  );
+}
+
+/** Seller paste sometimes puts the value before the label: `1200W :הספק`. */
+function labeledRow(line: string): { label: string; value: string } | null {
+  const row = splitRow(line);
+  if (row) {
+    if (looksLikeSpecValue(row.label) && looksLikeSpecLabel(row.value)) {
+      return { label: row.value, value: row.label };
+    }
+    return row;
+  }
+  const match = line.match(/^(.+?)\s*:\s*([^:]{2,40})$/);
+  if (!match?.[1] || !match[2]) return null;
+  const value = match[1].trim();
+  const label = match[2].trim();
+  if (!value || !looksLikeSpecLabel(label)) return null;
+  if (/^קטגורי|תת.?קטגור|^מותג$|הספק|מתח|נפח|תדר|משקל|רוחב|גובה|עומק|דגם|מק.?ט/.test(label) || looksLikeSpecValue(value)) {
+    return { label, value };
+  }
+  return null;
+}
+
+function isSectionHeading(line: string): boolean {
+  const clean = line.replace(/:\s*$/, '').trim();
+  if (/^(?:מאפיינים|תכונות|מידע|מפרט|מידות|מימדים|תיאור|נתונים|יתרונות|כולל)/.test(clean)) return true;
+  if (!isTitle(clean)) return false;
+  // Avoid treating mid-sentence fragments ("בעיצוב", "בנוסף") as section titles.
+  if (/^(?:ה|ב|ל|מ|ו|ש|כ|על |עם |גם |את |של )/.test(clean) && clean.split(/\s+/).length <= 3) return false;
+  return clean.split(/\s+/).length <= 4;
+}
+
 function stackedPair(label: string, value: string): { label: string; value: string } | null {
   const cleanLabel = label.trim();
   const cleanValue = value.trim();
@@ -2098,7 +2200,7 @@ function parsedToVariants(parsed: ParsedNotes, catalog: Catalog, notes = ''): Br
 
 async function applyParsed(input: z.infer<typeof inputSchema>, parsed: ParsedNotes, catalog: Catalog): Promise<ProductIntake> {
   const notes = `${input.model}\n${input.notes}`;
-  const categoryName = parsed.categoryName.trim() || inferCategory(notes);
+  const categoryName = refineCategory(parsed.categoryName, notes);
   const brandName = parsed.brandName.trim() || brandFromNotes(notes);
   parsed = {
     ...parsed,
@@ -2107,8 +2209,18 @@ async function applyParsed(input: z.infer<typeof inputSchema>, parsed: ParsedNot
     variants: collectVariantSizes(input.model, notes, parsed.variants),
   };
   if (!parsed.nameHe.trim()) {
-    parsed = { ...parsed, nameHe: notes.split('\n').map((line) => line.trim()).find((line) => line.length > 8 && !line.endsWith(':')) || input.model };
+    parsed = {
+      ...parsed,
+      nameHe:
+        notes
+          .split('\n')
+          .map((line) => line.trim())
+          .find((line) => line.length > 8 && !line.endsWith(':') && !/^קטגורי|^מותג/.test(line)) ||
+        input.model ||
+        'מוצר',
+    };
   }
+  if (!categoryName) throw new AppError(422, 'agent_failed', 'Category was not found on the page');
   const fitted = parsedToVariants(parsed, catalog, notes);
   if (fitted.length === 0 || (fitted[0] && fitted[0].specs.length === 0 && parsed.specs.length > 0)) {
     // Single-size freeform notes: use the full parse as the one variant.
@@ -2119,9 +2231,16 @@ async function applyParsed(input: z.infer<typeof inputSchema>, parsed: ParsedNot
       subcategory: emptySubcategory,
       specs: [],
     };
-    only.specs = parsed.specs.map((spec) => ({ ...spec, valueAr: '' }));
+    only.specs = ensureModelFeature(
+      parsed.specs.map((spec) => ({ ...spec, valueAr: '' })),
+      input.model,
+      only.sku,
+    );
     if (!fitted[0]) fitted.push(only);
     else fitted[0] = only;
+  }
+  for (const variant of fitted) {
+    variant.specs = ensureModelFeature(variant.specs, input.model, variant.sku, parsed.variants.find((item) => item.sku === variant.sku)?.modelCode ?? '');
   }
   const proposal: Proposal = {
     nameHe: familyName(parsed.nameHe || input.model, fitted.length),
@@ -2141,12 +2260,21 @@ async function applyParsed(input: z.infer<typeof inputSchema>, parsed: ParsedNot
   const created = { brand: null as string | null, category: null as string | null, subcategory: null as string | null, fields: [] as string[] };
   const slugs = new Set([...catalog.brands.map((brand) => brand.slug), ...catalog.categories.map((category) => category.slug)]);
   const brandId = await ensureBrand(proposal, catalog, slugs, created);
-  const category = await ensureCategory(proposal, catalog, slugs, created);
+  const category = await ensureCategory(proposal, catalog, slugs, created, notes);
   const fields: Field[] = [];
   const variants = [];
   for (const variant of fitted) {
-    const subcategoryId = await ensureSubcategory({ ...proposal, subcategory: variant.subcategory }, category, created);
-    const specs = await ensureSpecs({ ...proposal, specs: variant.specs }, fields, created);
+    const subcategoryId = await ensureSubcategory(
+      { ...proposal, subcategory: variant.subcategory },
+      category,
+      created,
+      notes,
+    );
+    const specs = await ensureSpecs(
+      { ...proposal, specs: ensureModelFeature(variant.specs, input.model, variant.sku) },
+      fields,
+      created,
+    );
     variants.push({
       label: clip(variant.label),
       sku: clip(variant.sku),
@@ -2198,36 +2326,37 @@ async function intakeBrief(input: z.infer<typeof inputSchema>): Promise<ProductI
   const parsed = parseNotes(input.model, input.notes);
   const coded = collectVariantSizes(input.model, notes, parsed.variants);
   // Multiple written sizes → always use per-block parsing (never the AI overlay that cloned size #1).
+  const categoryName = refineCategory(parsed.categoryName, notes);
+  const brandName = parsed.brandName || brandFromNotes(notes);
   if (coded.length >= 2) {
     return applyParsed(
       input,
       {
         ...parsed,
         variants: coded,
-        brandName: parsed.brandName || brandFromNotes(notes),
-        categoryName: parsed.categoryName || inferCategory(notes),
+        brandName,
+        categoryName,
       },
       catalog,
     );
   }
-  if (canApplyParsed({ ...parsed, categoryName: parsed.categoryName || inferCategory(notes) })) {
+  if (canApplyParsed({ ...parsed, categoryName })) {
     return applyParsed(
       input,
       {
         ...parsed,
-        brandName: parsed.brandName || brandFromNotes(notes),
-        categoryName: parsed.categoryName || inferCategory(notes),
+        brandName,
+        categoryName,
       },
       catalog,
     );
   }
   const brief = await askBrief(input, catalog);
   if (!brief.brand.name.trim() || !supportedFact(brief.brand.name, notes)) {
-    const name = brandFromNotes(notes);
-    brief.brand = name ? { id: '', name, slug: '' } : { id: '', name: '', slug: '' };
+    brief.brand = brandName ? { id: '', name: brandName, slug: '' } : { id: '', name: '', slug: '' };
   }
   if (!brief.category.nameHe.trim() || !supportedFact(brief.category.nameHe, notes)) {
-    const nameHe = labeledValue(input.notes, /^קטגור/) || inferCategory(notes);
+    const nameHe = categoryName || labeledValue(input.notes, /^קטגור/) || inferCategory(notes);
     brief.category = nameHe ? { ...brief.category, id: '', nameHe, nameAr: '', slug: '' } : { ...brief.category, id: '', nameHe: '', nameAr: '', slug: '' };
   }
   if (brief.nameHe && !supportedFact(brief.nameHe, notes)) brief.nameHe = input.model;
@@ -2235,15 +2364,20 @@ async function intakeBrief(input: z.infer<typeof inputSchema>): Promise<ProductI
     ...variant,
     price: supportedFact(variant.price, notes) ? variant.price : '',
     subcategory: supportedFact(variant.subcategory.nameHe, notes) ? variant.subcategory : emptySubcategory,
-    specs: variant.specs
-      .map((spec) =>
-        spec.section === 'spec' ? { ...spec, value: completeFromSource(spec.value, notes) || spec.value } : spec,
-      )
-      .filter((spec) => {
-        if (!supportedFact(spec.value, notes)) return false;
-        if (spec.section === 'spec' && startsMidSentence(spec.value)) return false;
-        return true;
-      }),
+    specs: ensureModelFeature(
+      variant.specs
+        .map((spec) =>
+          spec.section === 'spec' ? { ...spec, value: completeFromSource(spec.value, notes) || spec.value } : spec,
+        )
+        .filter((spec) => {
+          if (spec.labelHe === 'דגם') return Boolean(spec.value.trim() || input.model.trim());
+          if (!supportedFact(spec.value, notes)) return false;
+          if (spec.section === 'spec' && startsMidSentence(spec.value)) return false;
+          return true;
+        }),
+      input.model,
+      variant.sku,
+    ),
   }));
   if (!brief.brand.name.trim() && parsed.brandName) brief.brand = { id: '', name: parsed.brandName, slug: '' };
   if (!brief.category.nameHe.trim() && parsed.categoryName) {
@@ -2266,7 +2400,7 @@ async function intakeBrief(input: z.infer<typeof inputSchema>): Promise<ProductI
   const created = { brand: null as string | null, category: null as string | null, subcategory: null as string | null, fields: [] as string[] };
   const slugs = new Set([...catalog.brands.map((brand) => brand.slug), ...catalog.categories.map((category) => category.slug)]);
   const brandId = await ensureBrand(proposal, catalog, slugs, created);
-  const category = await ensureCategory(proposal, catalog, slugs, created);
+  const category = await ensureCategory(proposal, catalog, slugs, created, notes);
   const fields: Field[] = [];
   await applySpecParagraphs(input.notes, fields, fitted);
   for (const variant of fitted) {
@@ -2274,8 +2408,17 @@ async function intakeBrief(input: z.infer<typeof inputSchema>): Promise<ProductI
   }
   const variants = [];
   for (const variant of fitted) {
-    const subcategoryId = await ensureSubcategory({ ...proposal, subcategory: variant.subcategory }, category, created);
-    const specs = await ensureSpecs({ ...proposal, specs: variant.specs }, fields, created);
+    const subcategoryId = await ensureSubcategory(
+      { ...proposal, subcategory: variant.subcategory },
+      category,
+      created,
+      notes,
+    );
+    const specs = await ensureSpecs(
+      { ...proposal, specs: ensureModelFeature(variant.specs, input.model, variant.sku) },
+      fields,
+      created,
+    );
     variants.push({
       label: clip(variant.label),
       sku: clip(variant.sku),
@@ -2428,12 +2571,21 @@ function labeledValue(notes: string, label: RegExp): string {
 
 function brandFromNotes(notes: string): string {
   const labeled = labeledValue(notes, /^מותג$/);
-  if (labeled) return labeled;
-  return notes.match(/(?:קונצרן|מותג)\s+([A-Za-z][A-Za-z0-9&.\- ]{1,40})/)?.[1]?.trim() ?? '';
+  if (labeled) return labeled.split(/\s+/).slice(0, 3).join(' ').trim();
+  const fromHouse = notes.match(/מבית\s+([A-Za-zא-ת][A-Za-zא-ת0-9&.\-]*)/)?.[1]?.trim();
+  if (fromHouse && fromHouse.length >= 2 && !/^(?:המ|מיקרוגל|טלוויז|מקרר|תנור)/.test(fromHouse)) return fromHouse;
+  const latin =
+    notes.match(/\b(Samsung|LG|Sony|Philips|TCL|Hisense|Xiaomi|Google|Bosch|Siemens|Electrolux|Sharp|Panasonic|Tornado|Normande|Crystal)\b/i)?.[1] ??
+    notes.match(/(?:קונצרן|מותג)\s+([A-Za-z][A-Za-z0-9&.\- ]{1,40})/)?.[1]?.trim() ??
+    '';
+  return latin;
 }
 
 function inferCategory(text: string): string {
-  if (/מכונ(?:ת|ות) קפה/.test(text)) return 'מכונות קפה';
+  if (/מיקרוגל/.test(text)) return 'מיקרוגלים';
+  if (/מכונ(?:ת|ות) קפה|מקיאטו|אספרסו/.test(text)) return 'מכונות קפה';
+  if (/בלנדר|מיקסר|מעבד מזון/.test(text)) return 'מוצרי חשמל קטנים';
+  if (/קומקום|טוסטר|סיר לחץ|מחבת חשמל/.test(text)) return 'מוצרי חשמל קטנים';
   if (/טלוויז/.test(text)) return 'טלוויזיות';
   if (/מקרר/.test(text)) return 'מקררים';
   if (/כביסה|מייבש/.test(text)) return 'מכונות כביסה';
@@ -2441,7 +2593,17 @@ function inferCategory(text: string): string {
   if (/מדיח/.test(text)) return 'מדיחי כלים';
   if (/כיריים/.test(text)) return 'כיריים';
   if (/תנור/.test(text)) return 'תנורים';
+  if (/מוצרי חשמל(?:\s+למטבח)?/.test(text)) return 'מוצרי חשמל למטבח';
   return '';
+}
+
+/** Prefer a specific product type over a vague department label from the seller. */
+function refineCategory(written: string, text: string): string {
+  const inferred = inferCategory(text);
+  const clean = written.trim();
+  if (!clean) return inferred;
+  if (inferred && /מוצרי חשמל|מטבח|כללי|אחר/.test(clean) && !same(clean, inferred)) return inferred;
+  return clean;
 }
 
 function fitSizes(model: string, notes: string, variants: BriefVariant[]): BriefVariant[] {
@@ -2524,14 +2686,18 @@ function priceForSize(notes: string, size: string): string {
   return amount;
 }
 
-async function applyProposal(model: string, proposal: Proposal, catalog: Catalog): Promise<ProductIntake> {
+async function applyProposal(model: string, proposal: Proposal, catalog: Catalog, notes = ''): Promise<ProductIntake> {
   const created = { brand: null as string | null, category: null as string | null, subcategory: null as string | null, fields: [] as string[] };
   const slugs = new Set([...catalog.brands.map((brand) => brand.slug), ...catalog.categories.map((category) => category.slug)]);
   const brandId = await ensureBrand(proposal, catalog, slugs, created);
-  const category = await ensureCategory(proposal, catalog, slugs, created);
-  const subcategoryId = await ensureSubcategory(proposal, category, created);
+  const category = await ensureCategory(proposal, catalog, slugs, created, notes);
+  const subcategoryId = await ensureSubcategory(proposal, category, created, notes);
   const fields: Field[] = [];
-  const specs = await ensureSpecs(proposal, fields, created);
+  const specs = await ensureSpecs(
+    { ...proposal, specs: ensureModelFeature(proposal.specs, model) },
+    fields,
+    created,
+  );
   const nameHe = clip(proposal.nameHe || model);
   return {
     draft: {
@@ -2560,10 +2726,153 @@ async function applyProposal(model: string, proposal: Proposal, catalog: Catalog
   };
 }
 
-async function ensureBrand(proposal: Proposal, catalog: Catalog, slugs: Set<string>, created: ProductIntake['created']): Promise<string> {
-  const existing = catalog.brands.find(
-    (brand) => brand.id === proposal.brand.id || same(brand.name, proposal.brand.name),
+const brandAliases: Record<string, string> = {
+  לקאזה: 'lacasa',
+  לאקאזה: 'lacasa',
+  לקזה: 'lacasa',
+  סמסונג: 'samsung',
+  אלגי: 'lg',
+  'אל גי': 'lg',
+  סוני: 'sony',
+  פיליפס: 'philips',
+  הייסנס: 'hisense',
+  שיאומי: 'xiaomi',
+  בוש: 'bosch',
+  סימנס: 'siemens',
+  אלקטרה: 'electra',
+  המילטון: 'hemilton',
+  מידאה: 'midea',
+  קונקה: 'konka',
+  גנרל: 'general',
+  פרינס: 'prince',
+  ביסל: 'bissell',
+  וואל: 'wahl',
+};
+
+function brandToken(value: string): string {
+  const folded = fold(value);
+  return brandAliases[folded] || brandAliases[folded.replace(/\s+/g, '')] || folded.replace(/[^a-z0-9א-ת]+/g, '');
+}
+
+function brandsMatch(left: string, right: string): boolean {
+  if (!left.trim() || !right.trim()) return false;
+  if (same(left, right) || related(left, right)) return true;
+  const a = brandToken(left);
+  const b = brandToken(right);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (/^[a-z0-9]+$/.test(a) && /^[a-z0-9]+$/.test(b)) return a === b || a.includes(b) || b.includes(a);
+  // Hebrew tip vs English catalog (or reverse) via alias normalization.
+  const aAlias = brandAliases[fold(left)] || brandAliases[a] || a;
+  const bAlias = brandAliases[fold(right)] || brandAliases[b] || b;
+  return aAlias === bAlias;
+}
+
+function findBrand(catalog: Catalog, proposal: Proposal): Catalog['brands'][number] | undefined {
+  if (proposal.brand.id) {
+    const byId = catalog.brands.find((brand) => brand.id === proposal.brand.id);
+    if (byId) return byId;
+  }
+  const needle = proposal.brand.name.trim();
+  if (!needle) return undefined;
+  return catalog.brands.find(
+    (brand) =>
+      brandsMatch(brand.name, needle) ||
+      brandsMatch(brand.slug, needle) ||
+      brandsMatch(brand.name, proposal.brand.slug) ||
+      brandsMatch(brand.slug, proposal.brand.slug),
   );
+}
+
+function namesClose(left: string, right: string): boolean {
+  if (!left.trim() || !right.trim()) return false;
+  if (same(left, right) || related(left, right)) return true;
+  const a = fold(left).replace(/[^a-z0-9א-ת]+/g, '');
+  const b = fold(right).replace(/[^a-z0-9א-ת]+/g, '');
+  if (a.length >= 4 && b.length >= 4 && (a.includes(b) || b.includes(a))) return true;
+  return false;
+}
+
+function categoryHints(proposal: Proposal, notes: string): string[] {
+  return [
+    proposal.category.nameHe,
+    proposal.category.nameAr,
+    proposal.category.slug,
+    labeledValue(notes, /^קטגור/),
+    inferCategory(notes),
+    refineCategory(labeledValue(notes, /^קטגור/), notes),
+  ]
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function subcategoryHints(proposal: Proposal, notes: string, categoryName = ''): string[] {
+  return [
+    proposal.subcategory.nameHe,
+    proposal.subcategory.nameAr,
+    labeledValue(notes, /תת.?קטגור/),
+    inferCategory(notes),
+    categoryName,
+    ...categoryHints(proposal, notes),
+  ]
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function findCategory(catalog: Catalog, proposal: Proposal, notes: string): Category | undefined {
+  if (proposal.category.id) {
+    const byId = catalog.categories.find((category) => category.id === proposal.category.id);
+    if (byId) return byId;
+  }
+  const hints = categoryHints(proposal, notes);
+  for (const hint of hints) {
+    const direct = catalog.categories.find(
+      (category) =>
+        namesClose(category.name.he, hint) ||
+        namesClose(category.name.ar, hint) ||
+        namesClose(category.slug, hint) ||
+        same(category.slug, proposal.category.slug),
+    );
+    if (direct) return direct;
+  }
+  // Product type often lives as a subcategory (מיקרוגלים under חשמל למטבח).
+  for (const hint of hints) {
+    for (const category of catalog.categories) {
+      if (category.subcategories.some((item) => namesClose(item.name.he, hint) || namesClose(item.name.ar, hint))) {
+        return category;
+      }
+    }
+  }
+  return undefined;
+}
+
+function findSubcategory(
+  category: Category,
+  proposal: Proposal,
+  notes: string,
+): Category['subcategories'][number] | undefined {
+  if (proposal.subcategory.id) {
+    const byId = category.subcategories.find((item) => item.id === proposal.subcategory.id);
+    if (byId) return byId;
+  }
+  const hints = subcategoryHints(proposal, notes, proposal.category.nameHe);
+  for (const hint of hints) {
+    const hit = category.subcategories.find(
+      (item) => namesClose(item.name.he, hint) || namesClose(item.name.ar, hint) || namesClose(item.name.he, proposal.subcategory.nameHe),
+    );
+    if (hit) return hit;
+  }
+  // Size/range based match against existing subcategory names only.
+  const inches = Number(sizeToken(proposal.subcategory.nameHe) || sizeToken(notes) || '');
+  if (inches) {
+    const ranged = category.subcategories.find((item) => rangeCovers(item.name.he, inches) || rangeCovers(item.name.ar, inches));
+    if (ranged) return ranged;
+  }
+  return undefined;
+}
+
+async function ensureBrand(proposal: Proposal, catalog: Catalog, slugs: Set<string>, created: ProductIntake['created']): Promise<string> {
+  const existing = findBrand(catalog, proposal);
   if (existing) return existing.id;
   const name = clip(proposal.brand.name);
   // Notes-based fill often has no brand written — leave empty for the admin to pick.
@@ -2579,14 +2888,9 @@ async function ensureCategory(
   catalog: Catalog,
   slugs: Set<string>,
   created: ProductIntake['created'],
+  notes = '',
 ): Promise<Category> {
-  const existing = catalog.categories.find(
-    (category) =>
-      category.id === proposal.category.id ||
-      same(category.slug, proposal.category.slug) ||
-      same(category.name.he, proposal.category.nameHe) ||
-      same(category.name.ar, proposal.category.nameAr),
-  );
+  const existing = findCategory(catalog, proposal, notes);
   if (existing) return existing;
   const nameHe = clip(proposal.category.nameHe);
   if (!nameHe) throw new AppError(422, 'agent_failed', 'Category was not found on the page');
@@ -2603,13 +2907,27 @@ async function ensureCategory(
   return { id, slug: '', name: { he: nameHe, ar: nameAr }, image: '', displayOrder: null, subcategories: [], fields: [] };
 }
 
-async function ensureSubcategory(proposal: Proposal, category: Category, created: ProductIntake['created']): Promise<string> {
-  const nameHe = clip(proposal.subcategory.nameHe);
-  if (!nameHe) return '';
-  const existing = category.subcategories.find(
-    (item) => item.id === proposal.subcategory.id || same(item.name.he, nameHe) || same(item.name.ar, proposal.subcategory.nameAr),
-  );
+async function ensureSubcategory(
+  proposal: Proposal,
+  category: Category,
+  created: ProductIntake['created'],
+  notes = '',
+): Promise<string> {
+  const existing = findSubcategory(category, proposal, notes);
   if (existing) return existing.id;
+
+  const explicit = labeledValue(notes, /תת.?קטגור/).trim();
+  const nameHe = clip(explicit || proposal.subcategory.nameHe);
+  if (!nameHe) return '';
+  // Never invent a subcategory that already appears as another category's name unless asked.
+  if (!explicit && namesClose(nameHe, category.name.he)) return '';
+  // Only create when the seller named a subcategory, or the candidate is clearly present in the notes.
+  if (!explicit && !supportedFact(nameHe, notes)) return '';
+  // Prefer leaving empty over creating a duplicate of an existing sibling under a different spelling we failed to match.
+  if (!explicit && category.subcategories.some((item) => related(item.name.he, nameHe) || related(item.name.ar, nameHe))) {
+    return category.subcategories.find((item) => related(item.name.he, nameHe) || related(item.name.ar, nameHe))?.id ?? '';
+  }
+
   const id = newId('sub');
   const nameAr = clip(proposal.subcategory.nameAr || nameHe);
   await createSubcategory(category.id, { id, nameHe, nameAr, image: '' });

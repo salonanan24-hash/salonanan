@@ -245,7 +245,7 @@ export function ProductsPage() {
   }
 
   async function fillFromLink() {
-    if (!agentModel.trim()) {
+    if (!agentModel.trim() && !agentNotes.trim()) {
       setAgentNote(copy.agentFailed);
       return;
     }
