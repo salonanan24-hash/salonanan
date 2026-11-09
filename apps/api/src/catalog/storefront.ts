@@ -154,9 +154,11 @@ function detailsFrom(
 }
 
 function optionSpecs(variant: CatalogPayload['products'][number]['variants'][number], product: CatalogPayload['products'][number]) {
-  return Object.keys(variant.specs).length > 0
-    ? { specs: variant.specs, specsAr: variant.specsAr }
-    : { specs: product.specs, specsAr: product.specsAr };
+  // Variant values win, but keep product-level specs so nothing disappears when a variant is partial.
+  return {
+    specs: { ...product.specs, ...variant.specs },
+    specsAr: { ...product.specsAr, ...variant.specsAr },
+  };
 }
 
 function screenInches(specs: Record<string, string>, label: string): number | undefined {

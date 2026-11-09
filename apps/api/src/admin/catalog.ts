@@ -58,7 +58,7 @@ export const couponInput = z
     }
   });
 
-const specMap = z.record(z.string().max(8_000)).refine((value) => Object.keys(value).length <= 80);
+const specMap = z.record(z.string().max(20_000)).refine((value) => Object.keys(value).length <= 80);
 
 const variantSchema = z.object({
   id: idSchema,
@@ -92,7 +92,7 @@ const productSchema = z.object({
   subcategoryId: z.string().max(80),
   fields: z.array(fieldSchema).max(80).default([]),
   specs: specMap,
-  specsAr: z.record(z.string().max(8_000)).default({}),
+  specsAr: z.record(z.string().max(20_000)).default({}),
   variants: z.array(variantSchema).max(20),
 });
 
@@ -159,6 +159,27 @@ function check(error: DbError) {
   if (error) fail(error);
 }
 
+/** Supabase caps a single select at 1000 rows — page until everything is loaded. */
+async function fetchAll<T extends Record<string, unknown>>(
+  table: string,
+  columns: string,
+  orderBy?: { column: string; ascending?: boolean },
+): Promise<T[]> {
+  const client = db();
+  const pageSize = 1000;
+  const rows: T[] = [];
+  for (let from = 0; ; from += pageSize) {
+    let query = client.from(table).select(columns).range(from, from + pageSize - 1);
+    if (orderBy) query = query.order(orderBy.column, { ascending: orderBy.ascending ?? true });
+    const { data, error } = await query;
+    check(error);
+    const chunk = (data ?? []) as unknown as T[];
+    rows.push(...chunk);
+    if (chunk.length < pageSize) break;
+  }
+  return rows;
+}
+
 export function parseCatalog(input: unknown): CatalogPayload {
   return catalogSchema.parse(input);
 }
@@ -177,36 +198,135 @@ export async function isCatalogEmpty(): Promise<boolean> {
 
 export async function readCatalog(): Promise<CatalogPayload> {
   const client = db();
-  const [categories, subcategories, fields, brands, products, specs, variants, variantSpecs, images, coupons, couponProducts, settings, zones] =
-    await Promise.all([
-      client.from('categories').select('id, slug, name_he, name_ar, image_src, sort_order, display_order').order('sort_order'),
-      client.from('subcategories').select('id, category_id, name_he, name_ar, image_src, sort_order, display_order').order('sort_order'),
-      client.from('product_fields').select('id, product_id, label_he, label_ar, field_type, section, sort_order').order('sort_order'),
-      client.from('brands').select('id, slug, name, image_src, sort_order').order('sort_order'),
-      client.from('products').select('id, name_he, name_ar, price_minor, brand_id, category_id, subcategory_id, sort_order').order('sort_order'),
-      client.from('product_specs').select('product_id, field_id, value, value_ar'),
-      client.from('product_variants').select('id, product_id, color, color_hex, sku, price_minor, subcategory_id, stock, is_active, on_sale, in_packages, sort_order').order('sort_order'),
-      client.from('variant_specs').select('variant_id, field_id, value, value_ar'),
-      client.from('variant_images').select('id, variant_id, src, sort_order').order('sort_order'),
-      client.from('coupons').select('id, code, kind, value, ends_at, scope, category_id, subcategory_id, brand_id, sort_order').order('sort_order'),
-      client.from('coupon_products').select('coupon_id, product_id'),
-      client.from('store_settings').select('phone, accent').eq('id', true).maybeSingle(),
-      client.from('shipping_zones').select('id, name, name_ar, price_minor, is_active, sort_order').order('sort_order'),
-    ]);
+  const [
+    categories,
+    subcategories,
+    fields,
+    brands,
+    products,
+    specs,
+    variants,
+    variantSpecs,
+    images,
+    coupons,
+    couponProducts,
+    settings,
+    zones,
+  ] = await Promise.all([
+    fetchAll<{
+      id: string;
+      slug: string;
+      name_he: string;
+      name_ar: string;
+      image_src: string | null;
+      sort_order: number;
+      display_order: number | null;
+    }>('categories', 'id, slug, name_he, name_ar, image_src, sort_order, display_order', { column: 'sort_order' }),
+    fetchAll<{
+      id: string;
+      category_id: string;
+      name_he: string;
+      name_ar: string;
+      image_src: string | null;
+      sort_order: number;
+      display_order: number | null;
+    }>('subcategories', 'id, category_id, name_he, name_ar, image_src, sort_order, display_order', {
+      column: 'sort_order',
+    }),
+    fetchAll<{
+      id: string;
+      product_id: string;
+      label_he: string;
+      label_ar: string;
+      field_type: string;
+      section: string | null;
+      sort_order: number;
+    }>('product_fields', 'id, product_id, label_he, label_ar, field_type, section, sort_order', { column: 'sort_order' }),
+    fetchAll<{ id: string; slug: string; name: string; image_src: string | null; sort_order: number }>(
+      'brands',
+      'id, slug, name, image_src, sort_order',
+      { column: 'sort_order' },
+    ),
+    fetchAll<{
+      id: string;
+      name_he: string;
+      name_ar: string;
+      price_minor: number;
+      brand_id: string;
+      category_id: string;
+      subcategory_id: string | null;
+      sort_order: number;
+    }>('products', 'id, name_he, name_ar, price_minor, brand_id, category_id, subcategory_id, sort_order', {
+      column: 'sort_order',
+    }),
+    fetchAll<{ product_id: string; field_id: string; value: string; value_ar: string | null }>(
+      'product_specs',
+      'product_id, field_id, value, value_ar',
+    ),
+    fetchAll<{
+      id: string;
+      product_id: string;
+      color: string;
+      color_hex: string;
+      sku: string | null;
+      price_minor: number | null;
+      subcategory_id: string | null;
+      stock: number;
+      is_active: boolean;
+      on_sale: boolean;
+      in_packages: boolean;
+      sort_order: number;
+    }>(
+      'product_variants',
+      'id, product_id, color, color_hex, sku, price_minor, subcategory_id, stock, is_active, on_sale, in_packages, sort_order',
+      { column: 'sort_order' },
+    ),
+    fetchAll<{ variant_id: string; field_id: string; value: string; value_ar: string | null }>(
+      'variant_specs',
+      'variant_id, field_id, value, value_ar',
+    ),
+    fetchAll<{ id: string; variant_id: string; src: string; sort_order: number }>(
+      'variant_images',
+      'id, variant_id, src, sort_order',
+      { column: 'sort_order' },
+    ),
+    fetchAll<{
+      id: string;
+      code: string;
+      kind: string;
+      value: number;
+      ends_at: string | null;
+      scope: string | null;
+      category_id: string | null;
+      subcategory_id: string | null;
+      brand_id: string | null;
+      sort_order: number;
+    }>('coupons', 'id, code, kind, value, ends_at, scope, category_id, subcategory_id, brand_id, sort_order', {
+      column: 'sort_order',
+    }),
+    fetchAll<{ coupon_id: string; product_id: string }>('coupon_products', 'coupon_id, product_id'),
+    client.from('store_settings').select('phone, accent').eq('id', true).maybeSingle(),
+    fetchAll<{
+      id: string;
+      name: string;
+      name_ar: string | null;
+      price_minor: number;
+      is_active: boolean;
+      sort_order: number;
+    }>('shipping_zones', 'id, name, name_ar, price_minor, is_active, sort_order', { column: 'sort_order' }),
+  ]);
 
-  for (const result of [categories, subcategories, fields, brands, products, specs, variants, variantSpecs, images, coupons, couponProducts, settings, zones]) {
-    check(result.error);
-  }
+  check(settings.error);
 
-  const subsByCategory = group(subcategories.data ?? [], (row) => row.category_id);
-  const fieldsByProduct = group(fields.data ?? [], (row) => row.product_id);
-  const specsByProduct = group(specs.data ?? [], (row) => row.product_id);
-  const imagesByVariant = group(images.data ?? [], (row) => row.variant_id);
-  const specsByVariant = group(variantSpecs.data ?? [], (row) => row.variant_id);
-  const variantsByProduct = group(variants.data ?? [], (row) => row.product_id);
+  const subsByCategory = group(subcategories, (row) => row.category_id);
+  const fieldsByProduct = group(fields, (row) => row.product_id);
+  const specsByProduct = group(specs, (row) => row.product_id);
+  const imagesByVariant = group(images, (row) => row.variant_id);
+  const specsByVariant = group(variantSpecs, (row) => row.variant_id);
+  const variantsByProduct = group(variants, (row) => row.product_id);
 
   return {
-    categories: (categories.data ?? []).map((category) => ({
+    categories: categories.map((category) => ({
       id: category.id,
       slug: category.slug,
       name: { he: category.name_he, ar: category.name_ar },
@@ -220,13 +340,13 @@ export async function readCatalog(): Promise<CatalogPayload> {
       })),
       fields: [],
     })),
-    brands: (brands.data ?? []).map((brand) => ({
+    brands: brands.map((brand) => ({
       id: brand.id,
       slug: brand.slug,
       name: brand.name,
       image: brand.image_src ?? '',
     })),
-    products: (products.data ?? []).map((product) => ({
+    products: products.map((product) => ({
       id: product.id,
       name: { he: product.name_he, ar: product.name_ar },
       priceMinor: product.price_minor,
@@ -265,22 +385,22 @@ export async function readCatalog(): Promise<CatalogPayload> {
         images: (imagesByVariant.get(variant.id) ?? []).map((image) => ({ id: image.id, src: image.src })),
       })),
     })),
-    coupons: (coupons.data ?? []).map((coupon) => ({
+    coupons: coupons.map((coupon) => ({
       id: coupon.id,
       code: coupon.code,
       kind: coupon.kind as 'percent' | 'fixed',
       value: coupon.value,
-      endsAt: coupon.ends_at,
+      endsAt: coupon.ends_at ?? '',
       scope: (coupon.scope ?? 'site') as 'site' | 'category' | 'subcategory' | 'products' | 'brand',
       categoryId: coupon.category_id ?? '',
       subcategoryId: coupon.subcategory_id ?? '',
       brandId: coupon.brand_id ?? '',
-      productIds: (couponProducts.data ?? []).filter((row) => row.coupon_id === coupon.id).map((row) => row.product_id),
+      productIds: couponProducts.filter((row) => row.coupon_id === coupon.id).map((row) => row.product_id),
     })),
     settings: {
       phone: settings.data?.phone ?? '',
       accent: settings.data?.accent || 'burgundy',
-      zones: (zones.data ?? []).map((zone) => ({
+      zones: zones.map((zone) => ({
         id: zone.id,
         nameHe: zone.name,
         nameAr: zone.name_ar ?? '',
