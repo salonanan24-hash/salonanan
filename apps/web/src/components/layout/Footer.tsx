@@ -30,7 +30,7 @@ export function Footer() {
         <div>
           <img
             src="/brand/anan-logo.png"
-            alt=""
+            alt={messages.brand.logoAlt}
             width={2102}
             height={372}
             className="h-10 w-auto"

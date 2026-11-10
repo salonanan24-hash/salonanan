@@ -26,14 +26,16 @@ export function ProductImage({
     setUseArt(false);
   }, [src]);
 
+  const safeAlt = alt.trim();
+
   if (useArt) {
-    return <ProductArt categorySlug={categorySlug} />;
+    return <ProductArt categorySlug={categorySlug} label={safeAlt || undefined} />;
   }
 
   return (
     <img
       src={current}
-      alt={alt}
+      alt={safeAlt}
       width={1200}
       height={900}
       loading={priority ? 'eager' : 'lazy'}

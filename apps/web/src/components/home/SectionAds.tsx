@@ -5,10 +5,11 @@ import { Link } from 'react-router-dom';
 import { readCoverImage, readResizedImages } from '@/admin/images';
 import { adminRequest } from '@/admin/remote';
 import { useAuth } from '@/auth/auth-context';
+import { emptyStoreCatalog } from '@/data/catalog';
 import { useDevelopmentCatalog } from '@/hooks/use-catalog';
 import { useI18n } from '@/i18n';
 import { apiBase } from '@/lib/api-url';
-import { TargetPicker, adHref, type TargetKind } from '@/components/home/HomeAds';
+import { TargetPicker, adHref, adLabel, type TargetKind } from '@/components/home/HomeAds';
 
 const apiUrl = apiBase();
 
@@ -142,7 +143,10 @@ function SectionBanner({
   packages: StorePackage[];
   fill: boolean;
 }) {
-  const href = adHref(ad, catalog, packages);
+  const { locale, messages } = useI18n();
+  const store = catalog ?? emptyStoreCatalog;
+  const href = adHref(ad, store, packages);
+  const label = adLabel(ad, store, packages, locale) || messages.home.ads.slide;
   const mobile = ad.imageMobile?.trim() || '';
   const desktopClass = fill
     ? 'aspect-[760/740] h-auto w-full rounded-2xl object-cover xl:aspect-auto xl:h-full'
@@ -153,16 +157,16 @@ function SectionBanner({
   const image =
     mobile && !fill ? (
       <>
-        <img src={mobile} alt="" className={`lg:hidden ${mobileClass}`} />
-        <img src={ad.image} alt="" className={`hidden lg:block ${desktopClass}`} />
+        <img src={mobile} alt={label} className={`lg:hidden ${mobileClass}`} />
+        <img src={ad.image} alt={label} className={`hidden lg:block ${desktopClass}`} />
       </>
     ) : mobile && fill ? (
       <>
-        <img src={mobile} alt="" className={`xl:hidden ${mobileClass}`} />
-        <img src={ad.image} alt="" className={`hidden xl:block ${desktopClass}`} />
+        <img src={mobile} alt={label} className={`xl:hidden ${mobileClass}`} />
+        <img src={ad.image} alt={label} className={`hidden xl:block ${desktopClass}`} />
       </>
     ) : (
-      <img src={ad.image} alt="" className={desktopClass} />
+      <img src={ad.image} alt={label} className={desktopClass} />
     );
 
   if (!href) return <div className={fill ? 'h-full' : undefined}>{image}</div>;

@@ -45,10 +45,16 @@ export function CookieBanner() {
   if (!ready || (decided && !open)) return null;
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-50 border-t border-line bg-white p-4 shadow-[0_-12px_40px_rgb(23_32_51/0.16)] sm:p-5">
+    <div
+      role="region"
+      aria-labelledby="cookie-banner-title"
+      className="fixed inset-x-0 bottom-0 z-50 border-t border-line bg-white p-4 shadow-[0_-12px_40px_rgb(23_32_51/0.16)] sm:p-5"
+    >
       <div className="mx-auto flex max-w-5xl flex-col gap-4">
         <div className="space-y-2">
-          <h2 className="text-base font-extrabold text-ink">{copy.title}</h2>
+          <h2 id="cookie-banner-title" className="text-base font-extrabold text-ink">
+            {copy.title}
+          </h2>
           <p className="text-sm leading-6 text-muted">
             {copy.body}{' '}
             <Link to="/cookies" className="font-semibold text-brand-blue underline">

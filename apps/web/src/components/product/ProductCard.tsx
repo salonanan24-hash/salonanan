@@ -75,7 +75,7 @@ export function ProductCard({ product }: ProductCardProps) {
         <div className="pointer-events-none relative z-10 flex flex-1 flex-col gap-1">
         <div className="flex items-center justify-between gap-2">
           {brand?.image ? (
-            <img src={brand.image} alt="" className="h-7 max-w-[48%] object-contain" />
+            <img src={brand.image} alt={brand.name} className="h-7 max-w-[48%] object-contain" />
           ) : (
             <p className={`truncate text-[11px] font-semibold leading-4 ${copy('text-brand-blue')}`}>{brand?.name}</p>
           )}

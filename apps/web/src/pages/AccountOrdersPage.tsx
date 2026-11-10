@@ -164,7 +164,7 @@ function OrderRow({
             <div key={item.id} className="rounded-xl border border-[#ececec] bg-white p-3 sm:border-0 sm:p-0">
               <div className="flex items-center gap-3">
                 {item.image ? (
-                  <img src={item.image} alt="" className="size-16 shrink-0 rounded-lg object-contain sm:order-first" />
+                  <img src={item.image} alt={item.name[locale]} className="size-16 shrink-0 rounded-lg object-contain sm:order-first" />
                 ) : (
                   <span className="size-16 shrink-0 rounded-lg bg-[#f6f6f6]" />
                 )}

@@ -238,7 +238,7 @@ export function ProductPage() {
       {showBar ? (
         <div className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-white/95 backdrop-blur">
           <Container className="flex items-center gap-3 py-2">
-            <img src={shown.src} alt="" className="h-12 w-12 shrink-0 object-contain" />
+            <img src={shown.src} alt={shown.alt[locale]} className="h-12 w-12 shrink-0 object-contain" />
             <p className="min-w-0 flex-1 truncate text-sm font-bold text-ink">{model ? `${title} · ${model}` : title}</p>
             <PriceDisplay price={selected?.price ?? product.price} compareAt={product.compareAtPrice} compact />
             <button

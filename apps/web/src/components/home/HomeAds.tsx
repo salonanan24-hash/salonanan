@@ -852,7 +852,12 @@ export function adHref(ad: Pick<HomeAd, 'targetKind' | 'targetRef'>, catalog: St
   return item ? `/packages#${item.id}` : null;
 }
 
-function adLabel(ad: HomeAd, catalog: StoreCatalog, packages: StorePackage[], locale: 'he' | 'ar'): string {
+export function adLabel(
+  ad: Pick<HomeAd, 'targetKind' | 'targetRef'>,
+  catalog: StoreCatalog,
+  packages: StorePackage[],
+  locale: 'he' | 'ar',
+): string {
   if (ad.targetKind === 'none' || !ad.targetRef) return '';
   return targetOptions(ad.targetKind, catalog, packages, locale).find((option) => option.value === ad.targetRef)?.label ?? '';
 }

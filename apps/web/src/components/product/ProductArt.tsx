@@ -2,11 +2,19 @@ import type { ReactNode } from 'react';
 
 type ProductArtProps = {
   categorySlug: string;
+  label?: string;
 };
 
-export function ProductArt({ categorySlug }: ProductArtProps) {
+export function ProductArt({ categorySlug, label }: ProductArtProps) {
+  const accessible = Boolean(label?.trim());
   return (
-    <svg viewBox="0 0 200 150" aria-hidden="true" className="mx-auto h-36 w-full">
+    <svg
+      viewBox="0 0 200 150"
+      role={accessible ? 'img' : undefined}
+      aria-label={accessible ? label : undefined}
+      aria-hidden={accessible ? undefined : true}
+      className="mx-auto h-36 w-full"
+    >
       <rect width="200" height="150" fill="#ffffff" />
       {shapeFor(categorySlug)}
     </svg>

@@ -80,7 +80,7 @@ export function WelcomeGate() {
       <div className="relative flex h-full flex-col items-center justify-center px-6">
         <img
           src="/brand/anan-logo.png"
-          alt=""
+          alt={messages.brand.logoAlt}
           width={2102}
           height={372}
           className="anan-intro-logo h-20 w-auto sm:h-24"

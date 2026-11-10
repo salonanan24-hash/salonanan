@@ -112,7 +112,7 @@ export function AccountOrderPage() {
                 {item.image ? (
                   <img
                     src={item.image}
-                    alt=""
+                    alt={item.name[locale]}
                     className="mb-3 size-24 rounded-xl border border-[#ececec] bg-[#fafafa] object-contain p-2 sm:mb-0 sm:size-16 sm:border-0 sm:bg-transparent sm:p-0"
                   />
                 ) : (
