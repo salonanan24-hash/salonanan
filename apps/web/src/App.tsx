@@ -23,7 +23,7 @@ import { CategoryPage } from '@/pages/CategoryPage';
 import { CheckoutPage } from '@/pages/CheckoutPage';
 import { ComparePage } from '@/pages/ComparePage';
 import { FavoritesPage } from '@/pages/FavoritesPage';
-import { PrivacyPage, TermsPage } from '@/pages/LegalPage';
+import { AccessibilityPage, CookiesPage, PrivacyPage, TermsPage } from '@/pages/LegalPage';
 import { ContactPage } from '@/pages/ContactPage';
 import { HomePage } from '@/pages/HomePage';
 import { PackagesPage } from '@/pages/PackagesPage';
@@ -58,6 +58,8 @@ export function App() {
         <Route path="checkout" element={<CheckoutPage />} />
         <Route path="terms" element={<TermsPage />} />
         <Route path="privacy" element={<PrivacyPage />} />
+        <Route path="accessibility" element={<AccessibilityPage />} />
+        <Route path="cookies" element={<CookiesPage />} />
         <Route path="contact" element={<ContactPage />} />
         <Route path="login" element={<LoginPage />} />
         <Route path="register" element={<RegisterPage />} />

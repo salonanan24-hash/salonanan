@@ -3,10 +3,12 @@ import { activeCatalog } from '@/data/catalog';
 import { storeMapUrl, storePhones } from '@/data/store-contact';
 import { fill, useI18n } from '@/i18n';
 import { Container } from '@/components/ui/Container';
+import { useCookieConsentStore } from '@/stores/cookie-consent-store';
 
 export function Footer() {
   const { locale, messages } = useI18n();
   const year = new Date().getFullYear();
+  const openCookieSettings = useCookieConsentStore((state) => state.openSettings);
   const serviceLinks = [
     { to: '/contact', label: messages.nav.contact },
     { to: '/account', label: messages.nav.account },
@@ -14,6 +16,12 @@ export function Footer() {
     { to: '/compare', label: messages.nav.compare },
     { to: '/cart', label: messages.nav.cart },
     { to: '/checkout', label: messages.nav.checkout },
+  ];
+  const legalLinks = [
+    { to: '/privacy', label: messages.footer.privacy },
+    { to: '/terms', label: messages.footer.terms },
+    { to: '/accessibility', label: messages.footer.accessibility },
+    { to: '/cookies', label: messages.footer.cookies },
   ];
 
   return (
@@ -69,13 +77,23 @@ export function Footer() {
         <div>
           <h2 className="text-sm font-bold text-white">{messages.footer.info}</h2>
           <ul className="mt-3 space-y-2">
+            {legalLinks.map((link) => (
+              <li key={link.to}>
+                <Link to={link.to} className="text-sm text-white/75 hover:text-white">
+                  {link.label}
+                </Link>
+              </li>
+            ))}
             <li>
-              <Link to="/admin" className="text-sm text-white/75 hover:text-white">
-                {messages.nav.admin}
-              </Link>
+              <button
+                type="button"
+                onClick={openCookieSettings}
+                className="text-sm text-white/75 hover:text-white"
+              >
+                {messages.footer.cookieSettings}
+              </button>
             </li>
           </ul>
-          <p className="mt-4 text-sm leading-6 text-white/75">{messages.footer.dev}</p>
         </div>
       </Container>
       <div className="border-t border-white/10">

@@ -5,6 +5,7 @@ import { useDevelopmentCatalog } from '@/hooks/use-catalog';
 import { useI18n } from '@/i18n';
 import { ActionToast } from '@/components/ui/ActionToast';
 import { CategoryNav } from './CategoryNav';
+import { CookieBanner } from './CookieBanner';
 import { Footer } from './Footer';
 import { Header } from './Header';
 import { WelcomeGate } from './WelcomeGate';
@@ -76,6 +77,7 @@ export function StoreLayout() {
         <Outlet />
       </main>
       <Footer />
+      <CookieBanner />
     </div>
   );
 }
