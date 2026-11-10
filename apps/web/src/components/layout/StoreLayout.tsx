@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { directionFor } from '@anan/shared';
 import { useDevelopmentCatalog } from '@/hooks/use-catalog';
 import { useI18n } from '@/i18n';
+import { hideEnableAccessibility, mountEnableAccessibility } from '@/lib/enable-accessibility';
 import { ActionToast } from '@/components/ui/ActionToast';
 import { CategoryNav } from './CategoryNav';
 import { CookieBanner } from './CookieBanner';
@@ -25,6 +26,11 @@ export function StoreLayout() {
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [pathname]);
+
+  useEffect(() => {
+    mountEnableAccessibility();
+    return () => hideEnableAccessibility();
+  }, []);
 
   if (catalog.isPending) {
     return (

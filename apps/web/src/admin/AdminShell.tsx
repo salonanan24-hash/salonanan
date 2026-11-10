@@ -9,6 +9,7 @@ import { useAuth } from '@/auth/auth-context';
 import { StatusPage } from '@/components/ui/StatusPage';
 import { useI18n } from '@/i18n';
 import { usePageTitle } from '@/hooks/use-page-title';
+import { hideEnableAccessibility } from '@/lib/enable-accessibility';
 
 const links = [
   { to: '/admin', end: true, key: 'dashboard', icon: LayoutDashboard },
@@ -33,6 +34,10 @@ export function AdminShell() {
   const saveError = useAdminStore((state) => state.saveError);
   const load = useAdminStore((state) => state.load);
   usePageTitle(messages.admin.title);
+
+  useEffect(() => {
+    hideEnableAccessibility();
+  }, []);
 
   useEffect(() => {
     if (auth.user && isAdminEmail(auth.user.email)) {

@@ -372,3 +372,16 @@ html[lang='ar'] {
 .anan-accent-line:hover {
   background: color-mix(in srgb, var(--admin-accent) 6%, white);
 }
+
+/* Hide Enable accessibility widget on admin (and while leaving the storefront). */
+html[data-hide-enable-a11y] #INDmenu-btn,
+html[data-hide-enable-a11y] #INDmenu,
+html[data-hide-enable-a11y] #INDoverlay,
+html[data-hide-enable-a11y] .INDbtn,
+html[data-hide-enable-a11y] .INDmenu,
+html[data-hide-enable-a11y] [id^='IND'],
+html[data-hide-enable-a11y] iframe[src*='enable.co.il'] {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
