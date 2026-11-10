@@ -1653,17 +1653,26 @@ function parseNotes(model: string, notes: string): ParsedNotes {
         remember(row.label, row.value, 'features');
         continue;
       }
+      // Full width/height/depth line → one מידות field, never a bare "רוחב" field.
+      if (isDimensionBundle(row.label, row.value)) {
+        const text = /^(?:מידות|מימדים)$/.test(row.label) ? row.value : `${row.label}: ${row.value}`;
+        if (heading && isDimensionHeading(heading)) {
+          bullets.push(text);
+          continue;
+        }
+        remember('מידות', text, 'features');
+        continue;
+      }
       if (takeMeasure(row.label, row.value, heading || context, measureLines, measureFields)) {
         if (heading) bullets.push(`${row.label}: ${row.value}`);
         continue;
       }
       if (heading) {
+        // Keep nested facts inside the section field only (נפחים / מידות / מידע טכני…).
         bullets.push(`${row.label}: ${row.value}`);
         if (/דירוג אנרגטי/.test(row.label)) remember('דירוג אנרגטי', row.value, 'features');
-        else remember(row.label, row.value, 'features');
         continue;
       }
-      if (heading && paragraph.length === 0 && bullets.length === 0) context = heading;
       remember(row.label, row.value, 'features');
       continue;
     }
@@ -1734,18 +1743,9 @@ function parseNotes(model: string, notes: string): ParsedNotes {
   if (/טלוויזיה חכמה/.test(`${nameHe}\n${text.slice(0, 500)}`) && !specs.some((spec) => spec.labelHe === 'טלוויזיה חכמה')) {
     remember('טלוויזיה חכמה', 'כן', 'features');
   }
-  // Guarantee: keep the seller notes verbatim so nothing is shortened or dropped.
-  if (text.length >= 40 && !specs.some((spec) => spec.labelHe === 'תיאור מלא')) {
-    specs.push({
-      fieldId: '',
-      labelHe: 'תיאור מלא',
-      labelAr: '',
-      type: 'text',
-      section: 'spec',
-      value: text,
-      valueAr: '',
-    });
-  }
+  const collapsed = collapseNestedSpecs(specs);
+  specs.length = 0;
+  specs.push(...collapsed);
   const ordered = collectVariantSizes(model, `${nameHe}\n${text}`, variants);
   if (ordered.length === 0) {
     const code = modelCode(`${nameHe} ${model}`);
@@ -1981,11 +1981,43 @@ function labeledRow(line: string): { label: string; value: string } | null {
 
 function isSectionHeading(line: string): boolean {
   const clean = line.replace(/:\s*$/, '').trim();
-  if (/^(?:מאפיינים|תכונות|מידע|מפרט|מידות|מימדים|תיאור|נתונים|יתרונות|כולל)/.test(clean)) return true;
+  if (/^(?:מאפיינים|תכונות|מידע|מפרט|מידות|מימדים|נפחים?|תיאור|נתונים|יתרונות|כולל)/.test(clean)) return true;
   if (!isTitle(clean)) return false;
   // Avoid treating mid-sentence fragments ("בעיצוב", "בנוסף") as section titles.
   if (/^(?:ה|ב|ל|מ|ו|ש|כ|על |עם |גם |את |של )/.test(clean) && clean.split(/\s+/).length <= 3) return false;
   return clean.split(/\s+/).length <= 4;
+}
+
+function isDimensionHeading(heading: string): boolean {
+  return /^(?:מידות|מימדים)$/.test(heading.replace(/:\s*$/, '').trim());
+}
+
+/** e.g. `רוחב: 55 ס״מ | גובה: 170 ס״מ | עומק: 60 ס״מ` should stay one מידות field. */
+function isDimensionBundle(label: string, value: string): boolean {
+  if (/^(?:מידות|מימדים)$/.test(label)) return true;
+  if (!/^(?:רוחב|גובה|עומק)$/.test(label)) return false;
+  return /(?:גובה|עומק|רוחב)\s*:/.test(value) || value.includes('|');
+}
+
+function collapseNestedSpecs(specs: Proposal['specs']): Proposal['specs'] {
+  const rules: Array<{ parent: RegExp; child: RegExp }> = [
+    { parent: /^(?:מידות|מימדים)$/, child: /^(?:רוחב|גובה|עומק)(?:\s|$)/ },
+    { parent: /^נפחים?$/, child: /תא הקפאה|תא קירור|^(?:נטו|ברוטו|נפח)/ },
+    { parent: /^מידע טכני$/, child: /דירוג אקלים|כוכבי קירור|רמת רעש|גז קירור/ },
+  ];
+  return specs.filter((spec) => {
+    for (const rule of rules) {
+      if (!rule.child.test(spec.labelHe)) continue;
+      const parent = specs.find(
+        (item) =>
+          item !== spec &&
+          rule.parent.test(item.labelHe) &&
+          (item.value.includes(spec.labelHe) || item.value.includes(spec.value.trim()) || spec.value.includes('|')),
+      );
+      if (parent) return false;
+    }
+    return true;
+  });
 }
 
 function stackedPair(label: string, value: string): { label: string; value: string } | null {
@@ -2201,11 +2233,13 @@ function parsedToVariants(parsed: ParsedNotes, catalog: Catalog, notes = ''): Br
 async function applyParsed(input: z.infer<typeof inputSchema>, parsed: ParsedNotes, catalog: Catalog): Promise<ProductIntake> {
   const notes = `${input.model}\n${input.notes}`;
   const categoryName = refineCategory(parsed.categoryName, notes);
+  const subcategoryName = parsed.subcategoryName.trim() || inferSubcategory(notes);
   const brandName = parsed.brandName.trim() || brandFromNotes(notes);
   parsed = {
     ...parsed,
     brandName,
     categoryName,
+    subcategoryName,
     variants: collectVariantSizes(input.model, notes, parsed.variants),
   };
   if (!parsed.nameHe.trim()) {
@@ -2220,7 +2254,6 @@ async function applyParsed(input: z.infer<typeof inputSchema>, parsed: ParsedNot
         'מוצר',
     };
   }
-  if (!categoryName) throw new AppError(422, 'agent_failed', 'Category was not found on the page');
   const fitted = parsedToVariants(parsed, catalog, notes);
   if (fitted.length === 0 || (fitted[0] && fitted[0].specs.length === 0 && parsed.specs.length > 0)) {
     // Single-size freeform notes: use the full parse as the one variant.
@@ -2240,6 +2273,9 @@ async function applyParsed(input: z.infer<typeof inputSchema>, parsed: ParsedNot
     else fitted[0] = only;
   }
   for (const variant of fitted) {
+    if (!variant.subcategory.nameHe.trim() && subcategoryName) {
+      variant.subcategory = { id: '', nameHe: subcategoryName, nameAr: '' };
+    }
     variant.specs = ensureModelFeature(variant.specs, input.model, variant.sku, parsed.variants.find((item) => item.sku === variant.sku)?.modelCode ?? '');
   }
   const proposal: Proposal = {
@@ -2247,7 +2283,11 @@ async function applyParsed(input: z.infer<typeof inputSchema>, parsed: ParsedNot
     nameAr: '',
     brand: { id: '', name: brandName, slug: '' },
     category: { id: '', nameHe: categoryName, nameAr: '', slug: '' },
-    subcategory: fitted[0]?.subcategory ?? emptySubcategory,
+    subcategory: fitted[0]?.subcategory.nameHe
+      ? fitted[0].subcategory
+      : subcategoryName
+        ? { id: '', nameHe: subcategoryName, nameAr: '' }
+        : emptySubcategory,
     specs: fitted[0]?.specs ?? [],
     price: fitted[0]?.price ?? '',
     color: fitted[0]?.label ?? '',
@@ -2582,18 +2622,41 @@ function brandFromNotes(notes: string): string {
 }
 
 function inferCategory(text: string): string {
+  // Freezers belong under refrigerators in this catalog.
+  if (/מקפיא/.test(text)) return 'מקררים';
   if (/מיקרוגל/.test(text)) return 'מיקרוגלים';
   if (/מכונ(?:ת|ות) קפה|מקיאטו|אספרסו/.test(text)) return 'מכונות קפה';
   if (/בלנדר|מיקסר|מעבד מזון/.test(text)) return 'מוצרי חשמל קטנים';
   if (/קומקום|טוסטר|סיר לחץ|מחבת חשמל/.test(text)) return 'מוצרי חשמל קטנים';
   if (/טלוויז/.test(text)) return 'טלוויזיות';
-  if (/מקרר/.test(text)) return 'מקררים';
-  if (/כביסה|מייבש/.test(text)) return 'מכונות כביסה';
+  if (/מקרר|ויטרינה/.test(text)) return 'מקררים';
+  if (/כביסה|מייבש/.test(text)) return 'מכונות כביסה ומייבשים';
   if (/מזגן/.test(text)) return 'מזגנים';
   if (/מדיח/.test(text)) return 'מדיחי כלים';
   if (/כיריים/.test(text)) return 'כיריים';
-  if (/תנור/.test(text)) return 'תנורים';
-  if (/מוצרי חשמל(?:\s+למטבח)?/.test(text)) return 'מוצרי חשמל למטבח';
+  if (/תנור/.test(text)) return 'תנורי אפייה';
+  if (/קולט\s*אדים/.test(text)) return 'קולטי אדים';
+  if (/שואב|שטיפה/.test(text)) return 'מוצרי שטיפה ואבק';
+  if (/מוצרי חשמל(?:\s+למטבח)?|חשמל למטבח/.test(text)) return 'חשמל למטבח';
+  return '';
+}
+
+function inferSubcategory(text: string): string {
+  if (/מקפיא עליון/.test(text)) return 'מקפיא עליון';
+  if (/מקפיא תחתון|מקררים הפוכים|הפוך/.test(text)) return 'מקררים הפוכים';
+  if (/מקפיא/.test(text)) return 'מקפיאים';
+  if (/ויטרינה/.test(text)) return 'מקררי ויטרינה';
+  if (/אינטגרל|בנוי/.test(text) && /מקרר/.test(text)) return 'אינטגרלי';
+  if (/(?:3|4)\s*דלת|ארבע דלת|שלוש דלת/.test(text)) return '3ו 4 דלתות';
+  if (/דלת אחת|חד דלת/.test(text)) return 'דלת אחת';
+  if (/משרד|מיני מקרר|מקרר קטן/.test(text)) return 'משרדיים';
+  if (/מיקרוגל/.test(text)) return 'מיקרוגלים';
+  if (/מייבש/.test(text)) return 'מייבשים';
+  if (/כביסה/.test(text)) return 'מכונות כביסה';
+  if (/תנור משולב/.test(text)) return 'תנור משולב';
+  if (/תנור בנוי|תנור אינטגרל/.test(text)) return 'תנור בנוי';
+  if (/כיריים גז/.test(text)) return 'כיריים גז';
+  if (/כיריים חשמל|אינדוקציה|קרמי/.test(text)) return 'כיריים חשמליות';
   return '';
 }
 
@@ -2603,6 +2666,8 @@ function refineCategory(written: string, text: string): string {
   const clean = written.trim();
   if (!clean) return inferred;
   if (inferred && /מוצרי חשמל|מטבח|כללי|אחר/.test(clean) && !same(clean, inferred)) return inferred;
+  // Seller wrote a subcategory name (מיקרוגלים / מקפיאים) — keep parent inference for matching.
+  if (inferred && same(clean, inferSubcategory(text)) && !same(clean, inferred)) return inferred;
   return clean;
 }
 
@@ -2811,6 +2876,7 @@ function subcategoryHints(proposal: Proposal, notes: string, categoryName = ''):
     proposal.subcategory.nameHe,
     proposal.subcategory.nameAr,
     labeledValue(notes, /תת.?קטגור/),
+    inferSubcategory(notes),
     inferCategory(notes),
     categoryName,
     ...categoryHints(proposal, notes),
@@ -2890,9 +2956,14 @@ async function ensureCategory(
   created: ProductIntake['created'],
   notes = '',
 ): Promise<Category> {
-  const existing = findCategory(catalog, proposal, notes);
+  const inferredName = proposal.category.nameHe.trim() || refineCategory('', notes);
+  const nextProposal =
+    inferredName && !proposal.category.nameHe.trim()
+      ? { ...proposal, category: { ...proposal.category, nameHe: inferredName } }
+      : proposal;
+  const existing = findCategory(catalog, nextProposal, notes);
   if (existing) return existing;
-  const nameHe = clip(proposal.category.nameHe);
+  const nameHe = clip(nextProposal.category.nameHe || inferredName);
   if (!nameHe) throw new AppError(422, 'agent_failed', 'Category was not found on the page');
   const id = newId('cat');
   const nameAr = clip(proposal.category.nameAr || nameHe);
